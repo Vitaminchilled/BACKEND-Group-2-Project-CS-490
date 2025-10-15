@@ -6,9 +6,9 @@ app = Flask(__name__)
 CORS(app) 
 
 app.config['MYSQL_HOST'] = 'localhost'
-app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = '5283'
-app.config['MYSQL_DB'] = 'salon'
+app.config['MYSQL_USER'] = 'root' 
+app.config['MYSQL_PASSWORD'] = '5283' #put your own mysql password here
+app.config['MYSQL_DB'] = 'salon' #put your own database name here
 mysql = MySQL(app)
 
 @app.route('/')
