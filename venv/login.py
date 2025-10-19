@@ -11,7 +11,7 @@ CORS(app)
 app.config['MYSQL_HOST'] = 'localhost'
 app.config['MYSQL_USER'] = 'root'
 app.config['MYSQL_PASSWORD'] = '5283' #put your own mysql password here
-app.config['MYSQL_DB'] = 'sakila' #put your own database name here
+app.config['MYSQL_DB'] = 'salon' #put your own database name here
 mysql = MySQL(app)
 #------------------------------------------------------#
 
@@ -47,6 +47,11 @@ def register_page():
 #registering customers (next page)
 @app.route('/register/proceed', methods=['POST'])
 def register_customer():
+    username = session.get('register_username')
+    password = session.get('register_password') #already hashed 
+    if not username or not password:
+        return jsonify({'error': 'Session expired. Please start registration again.'}), 400
+    
     data = request.get_json()
     first_name = data.get('first_name')
     last_name = data.get('last_name')
@@ -54,8 +59,6 @@ def register_customer():
     phone_number = data.get('phone_number')
     gender = data.get('gender')
     birth_year = data.get('birth_year')
-    username = session.get('register_username')
-    password = session.get('register_password') #already hashed 
 
     #check if form is filled out
     if not all([first_name, last_name, email, phone_number, gender, birth_year, username, password]):
@@ -97,6 +100,11 @@ def register_customer():
 #register salons (alternative next page)
 @app.route('/register/salon', methods=['POST'])
 def register_salon():
+    username = session.get('register_username')
+    password = session.get('register_password') #already hashed
+    if not username or not password:
+        return jsonify({'error': 'Session expired. Please start registration again.'}), 400
+    
     data = request.get_json()
     first_name = data.get('first_name')
     last_name = data.get('last_name')
@@ -116,8 +124,6 @@ def register_salon():
     salon_state = data.get('salon_state')
     salon_postal_code = data.get('salon_postal_code')
     salon_country = data.get('salon_country')
-    username = session.get('register_username')
-    password = session.get('register_password') #already hashed
 
     #check if form is filled out, emails match 
     required_fields = [first_name, last_name, personal_email, personal_email_confirm, birth_year,
@@ -199,11 +205,11 @@ def login():
     password = data.get('password')
 
     #check if form is filled out
-    if not all([username, password]):
+    if not username or not password:
         return jsonify({'error': 'Missing required fields'}), 400
     
     cursor = mysql.connection.cursor()
-    cursor.execute("""select id, password, password from users where username = %s""", (username,))
+    cursor.execute("""select user_id, password from users where username = %s""", (username,))
     user = cursor.fetchone()
     cursor.close()
     #check if user exists
@@ -219,17 +225,17 @@ def login():
     session['username'] = username
     return jsonify({'message': 'Login successful'}), 200
 
+@app.route('/auth/status')
+def auth_status():
+    if 'user_id' in session:
+        return jsonify({'authenticated': True, 'username': session.get('username')}), 200
+    else:
+        return jsonify({'authenticated': False}), 200
+    
 @app.route('/logout', methods=['POST'])
 def logout():
     session.clear()
     return jsonify({'message': 'Logout successful'}), 200
 
-@app.route('/auth/status')
-def auth_satus():
-    if 'user_id' in session:
-        return jsonify({'authenticated': True, 'username': session.get['username']}), 200
-    else:
-        return jsonify({'authenticated': False}), 200
-    
 if __name__ == '__main__':
     app.run(debug=True)
