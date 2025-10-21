@@ -1,7 +1,8 @@
 from flask import Blueprint, request, jsonify, session
 from werkzeug.security import check_password_hash
-login_bp = Blueprint('login', __name__)
 from flask import current_app
+
+login_bp = Blueprint('login', __name__)
 
 @login_bp.route('/login', methods=['POST'])
 def login():
