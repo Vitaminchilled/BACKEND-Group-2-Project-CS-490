@@ -7,17 +7,21 @@ CORS(app)
 
 app.secret_key = 'G76D-U89V-576V-7BT6'
 
-app.config['MYSQL_HOST'] = 'localhost'
-app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = '5283'
-app.config['MYSQL_DB'] = 'salon'
+app.config.update(
+    MYSQL_HOST='localhost',
+    MYSQL_USER='root',
+    MYSQL_PASSWORD='5283',
+    MYSQL_DB='salon'
+)
 
 mysql = MySQL(app)
+app.config['MYSQL'] = mysql
 
-#routes
-import login
-import register
-import services
+from login import login_bp
+from register import register_bp
+
+app.register_blueprint(login_bp)
+app.register_blueprint(register_bp)
 
 @app.route('/')
 def home():

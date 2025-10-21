@@ -1,8 +1,9 @@
-from flask import request, jsonify, session
+from flask import Blueprint, request, jsonify, session
 from werkzeug.security import check_password_hash
-from app import app, mysql
+login_bp = Blueprint('login', __name__)
+from flask import current_app
 
-@app.route('/login', methods=['POST'])
+@login_bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
     username = data.get('username')
@@ -11,7 +12,8 @@ def login():
     #check if form is filled out
     if not username or not password:
         return jsonify({'error': 'Missing required fields'}), 400
-    
+
+    mysql = current_app.config['MYSQL']
     cursor = mysql.connection.cursor()
     cursor.execute("""select user_id, password from users where username = %s""", (username,))
     user = cursor.fetchone()
@@ -29,14 +31,14 @@ def login():
     session['username'] = username
     return jsonify({'message': 'Login successful'}), 200
 
-@app.route('/auth/status')
+@login_bp.route('/auth/status', methods=['GET'])
 def auth_status():
     if 'user_id' in session:
         return jsonify({'authenticated': True, 'username': session.get('username')}), 200
     else:
         return jsonify({'authenticated': False}), 200
     
-@app.route('/logout', methods=['POST'])
+@login_bp.route('/logout', methods=['POST'])
 def logout():
     session.clear()
     return jsonify({'message': 'Logout successful'}), 200
