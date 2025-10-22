@@ -3,47 +3,85 @@ from flask import current_app
 
 services_bp = Blueprint('services', __name__)
 
-@services_bp.route('salon/services/add', methods=['POST'])
-def add_service():
+@services_bp.route('/salon/services/<int:salon_id>', methods=['GET'])
+def get_services(salon_id):
+    try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+        query = """
+            select service_id, master_tag_id, name, description, duration_minutes, price, is_active
+            from services
+            where salon_id=%s
+        """
+        cursor.execute(query, (salon_id,))
+        services = cursor.fetchall()
+        cursor.close()
+        return jsonify({'services': services}), 200
+    except Exception as e:
+        return jsonify({'error': 'Failed to fetch services', 'details': str(e)}), 500
+    
+@services_bp.route('/salon/<int:salon_id>/services/add', methods=['POST'])
+def add_service(salon_id):
     data = request.get_json()
     #check if the form is filled out 
-    required_fields = ['salon_id', 'master_tag_id', 'name', 'description', 'duration_minutes', 'price']
+    required_fields = ['tag_name', 'name', 'description', 'duration_minutes', 'price']
     if not all(field in data for field in required_fields):
         return jsonify({'error': 'Missing required fields'}), 400
     
+    #find master_tag_id and tag_id by tag name
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor()
+    query = """
+        select tags.tag_id, master_tags.master_tag_id
+        from tags
+        join master_tags on master_tags.master_tag_id = tags.master_tag_id
+        where tags.name = %s
+    """
+    cursor.execute(query, (data['tag_name'],))
+    tag_info = cursor.fetchone()
+    tag_id, master_tag_id = tag_info
+
     try:
-        salon_id = data['salon_id']
-        master_tag_id = data['master_tag_id']
         name = data['name']
         description = data['description']
         duration_minutes = data['duration_minutes']
         price = data['price']
 
         #create new entry on the services table
-        mysql = current_app.config['MYSQL']
-        cursor = mysql.connection.cursor()
         query = """
             insert into services(salon_id, master_tag_id, name, description, duration_minutes, price)
+            values(%s, %s, %s, %s, %s, %s)
         """
         cursor.execute(query, (salon_id, master_tag_id, name, description, duration_minutes, price))
         mysql.connection.commit()
-
-        service_id = cursor.lastrowid
         cursor.close()
+
         return jsonify({'message': 'Service added successfully'}), 201
     except Exception as e:
         return jsonify({'error': 'Failed to add service', 'details': str(e)}), 500
 
-@services_bp.route('salon/services/edit/<int:service_id>', methods=['PUT'])
+@services_bp.route('/salon/services/edit/<int:service_id>', methods=['PUT'])
 def edit_service(service_id):
     data = request.get_json()
-    #check if the form is filled out
-    required_fields = ['master_tag_id', 'name', 'description', 'duration_minutes', 'price', 'is_active']
+    #check if the form is filled out/there is autofilled data
+    required_fields = ['tag_name', 'name', 'description', 'duration_minutes', 'price', 'is_active']
     if not all(field in data for field in required_fields):
         return jsonify({'error': 'Missing required fields'}), 400
     
+    #convert tag name to master_tag_id
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor()
+    query = """
+    select master_tags.master_tag_id
+    from tags
+    join master_tags on master_tags.master_tag_id = tags.master_tag_id
+    where tags.name = %s
+    """
+    cursor.execute(query, (data['tag_name'],))
+    result = cursor.fetchone()
+    master_tag_id = result[0] if result else None
+
     try:
-        master_tag_id = data['master_tag_id']
         name = data['name']
         description = data['description']
         duration_minutes = data['duration_minutes']
@@ -51,8 +89,6 @@ def edit_service(service_id):
         is_active = data['is_active']
 
         #update the service entry
-        mysql = current_app.config['MYSQL']
-        cursor = mysql.connection.cursor()
         query = """
             update services
             set master_tag_id=%s, name=%s, description=%s, duration_minutes=%s, price=%s, is_active=%s
@@ -65,10 +101,15 @@ def edit_service(service_id):
     except Exception as e:
         return jsonify({'error': 'Failed to update service', 'details': str(e)}), 500
 
-@services_bp.route('salon/services/delete/<int:service_id>', methods=['DELETE'])
+@services_bp.route('/salon/services/delete/<int:service_id>', methods=['DELETE'])
 def delete_service(service_id):
-    pass
-
-@services_bp.route('salon/services/loyalty', methods=['POST'])
-def service_loyalty():
-    pass
+    try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+        query = "delete from services where service_id=%s"
+        cursor.execute(query, (service_id,))
+        mysql.connection.commit()
+        cursor.close()
+        return jsonify({'message': 'Service deleted successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': 'Failed to delete service', 'details': str(e)}), 500
