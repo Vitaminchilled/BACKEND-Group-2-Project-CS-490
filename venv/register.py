@@ -1,10 +1,12 @@
-from flask import request, jsonify, session
+from flask import Blueprint, request, jsonify, session
 from werkzeug.security import generate_password_hash
 from datetime import datetime
-from app import app, mysql
+from flask import current_app
+
+register_bp = Blueprint('register_bp', __name__)
 
 #registering users (default page)
-@app.route('/register/page', methods=['POST'])
+@register_bp.route('/register/page', methods=['POST'])
 def register_page():
     data = request.get_json()
     username = data.get('username')
@@ -17,6 +19,7 @@ def register_page():
     if password != password_confirm:
         return jsonify({'error': 'Passwords do not match'}), 400
     
+    mysql = current_app.config['MYSQL']
     cursor = mysql.connection.cursor()
 
     #check is username exists 
@@ -33,7 +36,7 @@ def register_page():
     return jsonify({'message': 'Proceed to next page'}), 200
 
 #registering customers (next page)
-@app.route('/register/proceed', methods=['POST'])
+@register_bp.route('/register/customer', methods=['POST'])
 def register_customer():
     username = session.get('register_username')
     password = session.get('register_password') #already hashed 
@@ -52,6 +55,7 @@ def register_customer():
     if not all([first_name, last_name, email, phone_number, gender, birth_year, username, password]):
         return jsonify({'error': 'Missing required fields'}), 400
     
+    mysql = current_app.config['MYSQL']
     cursor = mysql.connection.cursor()
 
     #check if email exists
@@ -86,7 +90,7 @@ def register_customer():
         cursor.close()
 
 #register salons (alternative next page)
-@app.route('/register/salon', methods=['POST'])
+@register_bp.route('/register/salon', methods=['POST'])
 def register_salon():
     username = session.get('register_username')
     password = session.get('register_password') #already hashed
@@ -125,6 +129,7 @@ def register_salon():
     if salon_email != salon_email_confirm:
         return jsonify({'error': 'Emails do not match'}), 400
     
+    mysql = current_app.config['MYSQL']
     cursor = mysql.connection.cursor()
 
     #check if business name, personal email, salon email, personal phone number or salon phone number exists
