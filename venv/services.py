@@ -9,8 +9,9 @@ def get_services(salon_id):
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select service_id, master_tag_id, name, description, duration_minutes, price, is_active
+            select services.service_id, master_tags.name, services.name, services.description, services.duration_minutes, services.price, services.is_active
             from services
+            join master_tags on master_tags.master_tag_id = services.master_tag_id
             where salon_id=%s
         """
         cursor.execute(query, (salon_id,))
