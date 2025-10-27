@@ -143,9 +143,10 @@ def delete_employee(salon_id, employee_id):
     
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/timeslots', methods=['POST'])
 def add_timeslot(salon_id, employee_id):
-    date = request.form.get('date')
-    start_time = request.form.get('start_time')
-    end_time = request.form.get('end_time')
+    data = request.get_json()
+    date = data.get('date')
+    start_time = data.get('start_time')
+    end_time = data.get('end_time')
 
     if not all([date, start_time, end_time]):
         return jsonify({"error": "Missing required fields"}), 400
@@ -153,6 +154,20 @@ def add_timeslot(salon_id, employee_id):
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
+
+        #check for overlapping times
+        query = """
+            select slot_id from time_slots
+            where employee_id = %s and salon_id = %s and date = %s
+            and (%s < end_time and %s > start_time)
+        """
+        cursor.execute(query, (employee_id, salon_id, date, start_time, end_time))
+        overlap = cursor.fetchone()
+
+        if overlap:
+            cursor.close()
+            return jsonify({"error": "Please choose a different time slot."}), 400 
+        
         query = """
             insert into time_slots (salon_id, employee_id, date, start_time, end_time)
             values (%s, %s, %s, %s, %s)
@@ -177,17 +192,26 @@ def get_timeslots(salon_id, employee_id):
             order by date, start_time
         """
         cursor.execute(query, (salon_id, employee_id))
-        timeslots = cursor.fetchall()
+
+        #convert datetime to strings
+        columns = [desc[0] for desc in cursor.description]
+        timeslots = [dict(zip(columns, row)) for row in cursor.fetchall()]
         cursor.close()
+
+        for timeslot in timeslots:
+            for key in ['date', 'start_time', 'end_time', 'created_at', 'last_modified']:
+                if key in timeslot and timeslot[key] is not None:
+                    timeslot[key] = str(timeslot[key])
         return jsonify(timeslots), 200
     except Exception as e:
         return jsonify({"error": "An error occurred while fetching time slots."}), 500
 
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/timeslots/<int:slot_id>', methods=['PUT'])
 def edit_timeslot(salon_id, employee_id, slot_id):
-    date = request.form.get('date')
-    start_time = request.form.get('start_time')
-    end_time = request.form.get('end_time')
+    data = request.get_json()
+    date = data.get('date')
+    start_time = data.get('start_time')
+    end_time = data.get('end_time')
 
     if not all([date, start_time, end_time]):
         return jsonify({"error": "Missing required fields"}), 400
@@ -195,6 +219,21 @@ def edit_timeslot(salon_id, employee_id, slot_id):
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
+
+        #check for overlapping times
+        query = """
+            select slot_id from time_slots
+            where employee_id = %s and salon_id = %s and date = %s
+            and slot_id != %s
+            and (%s < end_time and %s > start_time)
+        """
+        cursor.execute(query, (employee_id, salon_id, date, slot_id, start_time, end_time))
+        overlap = cursor.fetchone()
+
+        if overlap:
+            cursor.close()
+            return jsonify({"error": "Please choose a different time slot."}), 400
+        
         query = """
             update time_slots
             set date = %s, start_time = %s, end_time = %s
@@ -223,4 +262,86 @@ def delete_timeslot(salon_id, employee_id, slot_id):
     except Exception as e:
         return jsonify({"error": "An error occurred while deleting the time slot."}), 500
 
+@employees_bp.route('/salon/<int:salon_id>/employees/salaries', methods=['GET'])
+def get_salaries(salon_id):
+    try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+        query = """
+            select employees.first_name, employees.last_name,
+                (select employee_salaries.salary_value
+                from employee_salaries
+                where employee_salaries.employee_id = employees.employee_id
+                order by employee_salaries.effective_date desc
+                limit 1) AS hourly,
+                (select employee_salaries.effective_date
+                from employee_salaries
+                where employee_salaries.employee_id = employees.employee_id
+                order by employee_salaries.effective_date desc
+                limit 1) AS effective_date
+            from employees
+            where employees.salon_id = %s
+            order by employees.last_name;
+        """
+        cursor.execute(query, (salon_id,))
+        columns = [desc[0] for desc in cursor.description]
+        salaries = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        cursor.close()
 
+        #turn dates into strings
+        for salary in salaries:
+            if 'effective_date' in salary and salary['effective_date'] is not None:
+                salary['effective_date'] = str(salary['effective_date'])
+
+        return jsonify(salaries)
+    except Exception as e:
+        return jsonify({"error": "An error occurred while displaying the salaries."}), 500
+
+@employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/salaries', methods=['POST'])
+def add_salary(salon_id, employee_id):
+    data = request.get_json()
+    salary_value = data.get('salary_value')
+    effective_date = data.get('effective_date')
+
+    if not all([salary_value, effective_date]):
+        return jsonify({"error": "Missing required fields"}), 400 
+    
+    try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+        query = """
+            insert into employee_salaries(salon_id, employee_id, salary_value, effective_date)
+            values(%s, %s, %s, %s)
+        """
+        cursor.execute(query, (salon_id, employee_id, salary_value, effective_date))
+        mysql.connection.commit()
+        cursor.close()
+        return jsonify({"message": "Salary added successfully"}), 201
+    except Exception as e:
+        return jsonify({"error": "An error occurred while adding the salary."}), 500
+
+#displays the salary histories of a specific employee 
+@employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/salaries', methods=['GET'])
+def get_salary(salon_id, employee_id):
+    try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+        query = """
+            select employees.first_name, employees.last_name, employee_salaries.salary_value as hourly, employee_salaries.effective_date
+            from employees 
+            join employee_salaries on employees.employee_id = employee_salaries.employee_id
+            where employees.salon_id = %s and employees.employee_id = %s
+            order by employee_salaries.effective_date;
+        """
+        cursor.execute(query, (salon_id, employee_id,))
+        columns = [desc[0] for desc in cursor.description]
+        salaries = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        cursor.close()
+
+        for salary in salaries:
+            if 'effective_date' in salary and salary['effective_date'] is not None:
+                salary['effective_date'] = str(salary['effective_date'])
+
+        return jsonify(salaries), 200
+    except Exception as e:
+        return jsonify({"error": "An error occurred while fetching the employee's salary history."}), 500
