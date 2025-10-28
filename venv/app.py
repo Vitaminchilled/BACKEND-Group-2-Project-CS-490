@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, request, jsonify, session
 from flask_mysqldb import MySQL
 from flask_cors import CORS
 
@@ -10,7 +10,7 @@ app.secret_key = 'G76D-U89V-576V-7BT6'
 app.config.update(
     MYSQL_HOST='localhost',
     MYSQL_USER='root',
-    MYSQL_PASSWORD='5283',
+    MYSQL_PASSWORD='Luca15',
     MYSQL_DB='salon'
 )
 
@@ -21,11 +21,13 @@ from login import login_bp
 from register import register_bp
 from services import services_bp
 from tags import tags_bp
+from salons import salons_bp
 
 app.register_blueprint(login_bp)
 app.register_blueprint(register_bp)
 app.register_blueprint(services_bp)
 app.register_blueprint(tags_bp)
+app.register_blueprint(salons_bp)
 
 @app.route('/')
 def home():

@@ -8,9 +8,22 @@ def get_services(salon_id):
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
+
+        salon_query = """
+            select * 
+            from salons
+            where salon_id=%s
+        """
+        cursor.execute(salon_query, (salon_id,))
+        salon = cursor.fetchone()
+        if not salon:
+            return jsonify({"error": "Salon not found"}), 404
+
         query = """
-            select service_id, master_tag_id, name, description, duration_minutes, price, is_active
+            select service_id, services.master_tag_id, services.name, master_tags.name as tag_name, description, duration_minutes, price, is_active
             from services
+            join master_tags 
+            on master_tags.master_tag_id = services.master_tag_id
             where salon_id=%s
         """
         cursor.execute(query, (salon_id,))
