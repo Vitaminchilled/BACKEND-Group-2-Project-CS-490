@@ -21,11 +21,13 @@ from login import login_bp
 from register import register_bp
 from services import services_bp
 from tags import tags_bp
+from employees import employees_bp
 
 app.register_blueprint(login_bp)
 app.register_blueprint(register_bp)
 app.register_blueprint(services_bp)
 app.register_blueprint(tags_bp)
+app.register_blueprint(employees_bp)
 
 @app.route('/')
 def home():
