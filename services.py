@@ -10,7 +10,7 @@ def get_services(salon_id):
         cursor = mysql.connection.cursor()
 
         salon_query = """
-            select * 
+            select salon_id
             from salons
             where salon_id=%s
         """
@@ -29,7 +29,18 @@ def get_services(salon_id):
         cursor.execute(query, (salon_id,))
         services = cursor.fetchall()
         cursor.close()
-        return jsonify({'services': services}), 200
+        return jsonify({
+            'services': [{
+                "service_id": service[0], 
+                "master_tag_id": service[1], 
+                "service_name": service[2], 
+                "master_tag_name": service[3], 
+                "description": service[4], 
+                "duration_minutes": service[5], 
+                "price": service[6], 
+                "is_active": service[7]
+            } for service in services]
+        }), 200
     except Exception as e:
         return jsonify({'error': 'Failed to fetch services', 'details': str(e)}), 500
     

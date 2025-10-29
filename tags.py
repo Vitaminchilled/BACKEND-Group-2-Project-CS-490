@@ -35,4 +35,4 @@ def get_tags(master_tag_id):
         cursor.close()
         return jsonify({'tags': tags}), 200
     except Exception as e:
-        return jsonify({'error': 'Failed to fetch tags', 'details': str(e)}), 500   
+        return jsonify({'error': 'Failed to fetch tags', 'details': str(e)}), 500
