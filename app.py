@@ -21,10 +21,11 @@ from login import login_bp
 from register import register_bp
 from services import services_bp
 from tags import tags_bp
-from salons import salons_bp
-from salon import salon_bp
+from salons import salons_bp #lizeth
+from salon import salon_bp #ben
 from employees import employees_bp
 from appointments import appointments_bp
+from reviews import reviews_bp
 
 
 app.register_blueprint(appointments_bp)
@@ -35,6 +36,7 @@ app.register_blueprint(tags_bp)
 app.register_blueprint(salons_bp) #lizeth salons
 app.register_blueprint(salon_bp) #ben salons
 app.register_blueprint(employees_bp)
+app.register_blueprint(reviews_bp)
 
 @app.route('/')
 def home():

@@ -67,21 +67,26 @@ def get_salons():
             SELECT COUNT(*)
             FROM salons
             JOIN master_tags ON master_tags.master_tag_id = salons.master_tag_id
-            JOIN salon_analytics ON salon_analytics.salon_id = salons.salon_id
+            LEFT JOIN salon_analytics ON salon_analytics.salon_id = salons.salon_id
             {where_clause}
         """
         cursor.execute(count_query, params)
         total = cursor.fetchone()[0]
 
         query = f"""
-            select salons.salon_id, owner_id, salons.master_tag_id, 
-                salons.name as salon_name, master_tags.name as tag_name, 
-                description, email, phone_number, operating_hours,
-                salon_analytics.average_rating as rating
+            select salons.salon_id, 
+                    owner_id, salons.master_tag_id, 
+                    salons.name as salon_name, 
+                    master_tags.name as tag_name, 
+                    description, 
+                    email, 
+                    phone_number, 
+
+                    salon_analytics.average_rating as rating
             from salons
             join master_tags 
             on master_tags.master_tag_id = salons.master_tag_id
-            join salon_analytics 
+            left join salon_analytics 
             on salon_analytics.salon_id = salons.salon_id
             {where_clause}
             order by salons.salon_id
@@ -104,8 +109,7 @@ def get_salons():
                 "description": salon[5],
                 "email": salon[6],
                 "phone_number": salon[7],
-                "operating_hours": salon[8],
-                "rating": salon[9]
+                "rating": salon[8]
             } for salon in salons],
             'page' : page,
             'total_retrieved' : len(salons),
@@ -122,15 +126,24 @@ def get_salon_info(salon_id):
         cursor = mysql.connection.cursor()
 
         salon_query = """
-            select salons.salon_id, salons.owner_id, salons.master_tag_id,
-                salons.name, 
-                description, email, phone_number, operating_hours,
-                address, city, state, postal_code, country,
-                salon_analytics.average_rating
+            select salons.salon_id, 
+                    salons.owner_id, 
+                    salons.master_tag_id,
+                    salons.name, 
+                    description, 
+                    email, 
+                    phone_number, 
+
+                    address, 
+                    city, 
+                    state, 
+                    postal_code, 
+                    country,
+                    salon_analytics.average_rating
             from salons
             join addresses
             on addresses.salon_id = salons.salon_id
-            join salon_analytics 
+            left join salon_analytics 
             on salon_analytics.salon_id = salons.salon_id
             where salons.salon_id=%s
         """
@@ -156,13 +169,13 @@ def get_salon_info(salon_id):
                 "description": salon[4],
                 "email": salon[5],
                 "phone_number": salon[6],
-                "operating_hours": salon[7],
-                "address": salon[8],
-                "city": salon[9],
-                "state": salon[10],
-                "postal_code": salon[11],
-                "country": salon[12],
-                "average_rating": salon[13]
+
+                "address": salon[7],
+                "city": salon[8],
+                "state": salon[9],
+                "postal_code": salon[10],
+                "country": salon[11],
+                "average_rating": salon[12]
             },
             'tags' : tags, #tag list ex.["Salon Hair Cut","Blowout","Hair Wash","Hair Dye","Styling"]
             'employees' : [{
