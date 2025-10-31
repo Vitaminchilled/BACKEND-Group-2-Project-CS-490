@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, session
 from flask import current_app
+from datetime import datetime
 
 employees_bp = Blueprint('employees', __name__)
 
@@ -11,12 +12,12 @@ def get_employees(salon_id):
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select employees.employee_id, employees.first_name, employees.last_name, employees.description, master_tags.name, salon_gallery.image_url
+            select employees.first_name, employees.last_name, employees.description, master_tags.name
             from employees
-            left join master_tags on master_tags.master_tag_id = employees.master_tag_id
-            left join salon_gallery on salon_gallery.employee_id = employees.employee_id
-            where employees.salon_id = %s
-            order by employees.last_name
+            join entity_master_tags on entity_master_tags.entity_id = employees.employee_id
+            join master_tags on entity_master_tags.master_tag_id = master_tags.master_tag_id
+            where entity_master_tags.entity_type = 'employees' and employees.salon_id = %s
+            order by employees.last_name;
         """
         cursor.execute(query, (salon_id,))
         employees = cursor.fetchall()
@@ -49,12 +50,18 @@ def add_employee(salon_id):
 
     try:
         query = """
-            insert into employees (salon_id, master_tag_id, first_name, last_name, description)
-            values (%s, %s, %s, %s, %s)
+            insert into employees (salon_id, first_name, last_name, description)
+            values (%s, %s, %s, %s)
         """
-        cursor.execute(query, (salon_id, master_tag_id, first_name, last_name, description))
-        mysql.connection.commit()
+        cursor.execute(query, (salon_id, first_name, last_name, description))
         employee_id = cursor.lastrowid
+        
+        query = """
+            insert into entity_master_tags (entity_type, entity_id, master_tag_id)
+            values (%s, %s, %s)
+        """
+        cursor.execute(query, ('employees', employee_id, master_tag_id))
+        mysql.connection.commit()
 
         #if photo:
             #query = """
@@ -93,10 +100,16 @@ def edit_employee(salon_id, employee_id):
     try:
         query = """
             update employees
-            set first_name = %s, last_name = %s, description = %s, master_tag_id = %s
+            set first_name = %s, last_name = %s, description = %s
             where employee_id = %s and salon_id = %s
         """
-        cursor.execute(query, (first_name, last_name, description, master_tag_id, employee_id, salon_id))
+        cursor.execute(query, (first_name, last_name, description, employee_id, salon_id))
+        query = """
+            update entity_master_tags
+            set master_tag_id = %s
+            where entity_id = %s and entity_type = 'employees'
+        """
+        cursor.execute(query, (master_tag_id, employee_id))
         mysql.connection.commit()
 
         #if photo:
@@ -129,6 +142,12 @@ def delete_employee(salon_id, employee_id):
             where employee_id = %s
         """
         cursor.execute(query, (employee_id,))
+        #delete employee's tag
+        query = """
+            delete from entity_master_tags
+            where entity_id = %s
+        """
+        cursor.execute(query, (employee_id,))
         #delete employee last 
         query = """
             delete from employees
@@ -144,24 +163,50 @@ def delete_employee(salon_id, employee_id):
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/timeslots', methods=['POST'])
 def add_timeslot(salon_id, employee_id):
     data = request.get_json()
-    date = data.get('date')
+    day = data.get('day')
     start_time = data.get('start_time')
     end_time = data.get('end_time')
 
-    if not all([date, start_time, end_time]):
+    if not all([day, start_time, end_time]):
         return jsonify({"error": "Missing required fields"}), 400
+
+    start_time = datetime.strptime(start_time, "%H:%M:%S").time()
+    end_time = datetime.strptime(end_time, "%H:%M:%S").time()
 
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
 
+        #check salon's hours
+        query = """
+            select open_time, close_time
+            from operating_hours
+            where salon_id = %s and day = %s
+        """
+        cursor.execute(query, (salon_id, day))
+        hours = cursor.fetchone()
+
+        if not hours:
+            cursor.close()
+            return jsonify({"error": f"No operating hours set for {day}."}), 400
+        
+        open_time, close_time = hours
+        open_time = (datetime.min + open_time).time()
+        close_time = (datetime.min + close_time).time()
+
+        #check if within operating hours
+        if not (open_time <= start_time < end_time <= close_time):
+            cursor.close()
+            return jsonify({
+                "error": f"Time slot must be between {open_time} and {close_time} for {day}."}), 400
+        
         #check for overlapping times
         query = """
             select slot_id from time_slots
-            where employee_id = %s and salon_id = %s and date = %s
+            where employee_id = %s and salon_id = %s and day = %s
             and (%s < end_time and %s > start_time)
         """
-        cursor.execute(query, (employee_id, salon_id, date, start_time, end_time))
+        cursor.execute(query, (employee_id, salon_id, day, start_time, end_time))
         overlap = cursor.fetchone()
 
         if overlap:
@@ -169,10 +214,10 @@ def add_timeslot(salon_id, employee_id):
             return jsonify({"error": "Please choose a different time slot."}), 400 
         
         query = """
-            insert into time_slots (salon_id, employee_id, date, start_time, end_time)
+            insert into time_slots (salon_id, employee_id, day, start_time, end_time)
             values (%s, %s, %s, %s, %s)
         """
-        cursor.execute(query, (salon_id, employee_id, date, start_time, end_time))
+        cursor.execute(query, (salon_id, employee_id, day, start_time, end_time))
         mysql.connection.commit()
         cursor.close()
         return jsonify({"message": "Time slot added successfully"}), 201
@@ -186,10 +231,10 @@ def get_timeslots(salon_id, employee_id):
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select slot_id, date, start_time, end_time
+            select slot_id, day, start_time, end_time
             from time_slots
             where salon_id = %s and employee_id = %s
-            order by date, start_time
+            order by field(day, 'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time
         """
         cursor.execute(query, (salon_id, employee_id))
 
@@ -199,7 +244,7 @@ def get_timeslots(salon_id, employee_id):
         cursor.close()
 
         for timeslot in timeslots:
-            for key in ['date', 'start_time', 'end_time', 'created_at', 'last_modified']:
+            for key in ['day', 'start_time', 'end_time', 'created_at', 'last_modified']:
                 if key in timeslot and timeslot[key] is not None:
                     timeslot[key] = str(timeslot[key])
         return jsonify(timeslots), 200
@@ -209,25 +254,51 @@ def get_timeslots(salon_id, employee_id):
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/timeslots/<int:slot_id>', methods=['PUT'])
 def edit_timeslot(salon_id, employee_id, slot_id):
     data = request.get_json()
-    date = data.get('date')
+    day = data.get('day')
     start_time = data.get('start_time')
     end_time = data.get('end_time')
 
-    if not all([date, start_time, end_time]):
+    if not all([day, start_time, end_time]):
         return jsonify({"error": "Missing required fields"}), 400
 
+    start_time = datetime.strptime(start_time, "%H:%M:%S").time()
+    end_time = datetime.strptime(end_time, "%H:%M:%S").time()
+    
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
 
+        #check salon's hours
+        query = """
+            select open_time, close_time
+            from operating_hours
+            where salon_id = %s and day = %s
+        """
+        cursor.execute(query, (salon_id, day))
+        hours = cursor.fetchone()
+
+        if not hours:
+            cursor.close()
+            return jsonify({"error": f"No operating hours set for {day}."}), 400
+        
+        open_time, close_time = hours
+        open_time = (datetime.min + open_time).time()
+        close_time = (datetime.min + close_time).time()
+
+        #check if within operating hours
+        if not (open_time <= start_time < end_time <= close_time):
+            cursor.close()
+            return jsonify({
+                "error": f"Time slot must be between {open_time} and {close_time} for {day}."}), 400
+        
         #check for overlapping times
         query = """
             select slot_id from time_slots
-            where employee_id = %s and salon_id = %s and date = %s
+            where employee_id = %s and salon_id = %s and day = %s
             and slot_id != %s
             and (%s < end_time and %s > start_time)
         """
-        cursor.execute(query, (employee_id, salon_id, date, slot_id, start_time, end_time))
+        cursor.execute(query, (employee_id, salon_id, day, slot_id, start_time, end_time))
         overlap = cursor.fetchone()
 
         if overlap:
@@ -236,10 +307,10 @@ def edit_timeslot(salon_id, employee_id, slot_id):
         
         query = """
             update time_slots
-            set date = %s, start_time = %s, end_time = %s
+            set day = %s, start_time = %s, end_time = %s
             where slot_id = %s and employee_id = %s and salon_id = %s
         """
-        cursor.execute(query, (date, start_time, end_time, slot_id, employee_id, salon_id))
+        cursor.execute(query, (day, start_time, end_time, slot_id, employee_id, salon_id))
         mysql.connection.commit()
         cursor.close()
         return jsonify({"message": "Time slot updated successfully"}), 200
@@ -306,6 +377,8 @@ def add_salary(salon_id, employee_id):
     if not all([salary_value, effective_date]):
         return jsonify({"error": "Missing required fields"}), 400 
     
+    datetime.strptime(effective_date, "%Y-%m-%d")
+
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
