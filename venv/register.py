@@ -107,6 +107,7 @@ def register_salon():
     gender = data.get('gender') #Male | Female 
 
     salon_name = data.get('salon_name')
+    description = data.get('description')
     salon_email = data.get('salon_email')
     salon_email_confirm = data.get('salon_email_confirm')
     salon_phone_number = data.get('salon_phone_number')
@@ -173,7 +174,7 @@ def register_salon():
             insert into salons(owner_id, name, description, email, phone_number, created_at, last_modified)
             values(%s,%s,%s,%s,%s,%s,%s)
         """
-        cursor.execute(query, (owner_id, salon_name, None, salon_email, salon_phone_number, now, now))
+        cursor.execute(query, (owner_id, salon_name, description, salon_email, salon_phone_number, now, now))
         salon_id = cursor.lastrowid 
 
         #insert new salon address into addresses table
