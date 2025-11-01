@@ -10,7 +10,7 @@ app.secret_key = 'G76D-U89V-576V-7BT6'
 app.config.update(
     MYSQL_HOST='localhost',
     MYSQL_USER='root',
-    MYSQL_PASSWORD='5283',
+    MYSQL_PASSWORD='B3njamin178',
     MYSQL_DB='salon'
 )
 
@@ -23,6 +23,7 @@ from services import services_bp
 from tags import tags_bp
 from employees import employees_bp
 from salon import salon_bp
+from admin import admin_bp
 
 app.register_blueprint(login_bp)
 app.register_blueprint(register_bp)
@@ -30,6 +31,7 @@ app.register_blueprint(services_bp)
 app.register_blueprint(tags_bp)
 app.register_blueprint(employees_bp)
 app.register_blueprint(salon_bp)
+app.register_blueprint(admin_bp)
 
 @app.route('/')
 def home():
