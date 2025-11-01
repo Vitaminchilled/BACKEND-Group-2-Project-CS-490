@@ -25,6 +25,7 @@ from employees import employees_bp
 from salon import salon_bp
 from appointments import appointments_bp
 from loyalty import loyalty_bp
+from admin import admin_bp
 
 app.register_blueprint(login_bp)
 app.register_blueprint(register_bp)
@@ -34,6 +35,7 @@ app.register_blueprint(employees_bp)
 app.register_blueprint(salon_bp)
 app.register_blueprint(appointments_bp)
 app.register_blueprint(loyalty_bp)
+app.register_blueprint(admin_bp)
 
 @app.route('/')
 def home():
