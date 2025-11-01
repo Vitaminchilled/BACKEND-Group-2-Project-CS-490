@@ -3,7 +3,7 @@ from flask import current_app
 
 services_bp = Blueprint('services', __name__)
 
-@services_bp.route('/salon/services/<int:salon_id>', methods=['GET'])
+@services_bp.route('/salon/<int:salon_id>/services', methods=['GET'])
 def get_services(salon_id):
     try:
         mysql = current_app.config['MYSQL']

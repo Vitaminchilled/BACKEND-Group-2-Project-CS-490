@@ -119,7 +119,7 @@ def get_salons():
     except Exception as e:
         return jsonify({'error': 'Failed to fetch salons', 'details': str(e)}), 500
     
-@salons_bp.route('/salon/info/<int:salon_id>', methods=['GET'])
+@salons_bp.route('/salon/<int:salon_id>/header', methods=['GET'])
 def get_salon_info(salon_id):
     try: 
         mysql = current_app.config['MYSQL']
@@ -141,7 +141,7 @@ def get_salon_info(salon_id):
                     country,
                     salon_analytics.average_rating
             from salons
-            join addresses
+            left join addresses
             on addresses.salon_id = salons.salon_id
             left join salon_analytics 
             on salon_analytics.salon_id = salons.salon_id
@@ -154,9 +154,6 @@ def get_salon_info(salon_id):
         
         cursor.execute("""select name from tags where master_tag_id=%s""", (salon[2],))
         tags = [tag[0] for tag in cursor.fetchall()]
-
-        cursor.execute("""select employee_id, first_name, last_name, description from employees where salon_id=%s""", (salon[0],))
-        employees = cursor.fetchall()
 
         cursor.close()
 
@@ -178,12 +175,6 @@ def get_salon_info(salon_id):
                 "average_rating": salon[12]
             },
             'tags' : tags, #tag list ex.["Salon Hair Cut","Blowout","Hair Wash","Hair Dye","Styling"]
-            'employees' : [{
-                "employee_id": employee[0],
-                "employee_first_name": employee[1],
-                "employee_last_name": employee[2],
-                "description": employee[3]
-            } for employee in employees]
         }), 200
     except Exception as e:
         return jsonify({'error': 'Failed to fetch salon', 'details': str(e)}), 500

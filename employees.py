@@ -21,7 +21,16 @@ def get_employees(salon_id):
         cursor.execute(query, (salon_id,))
         employees = cursor.fetchall()
         cursor.close()
-        return jsonify(employees)
+        return jsonify({
+            'employees' : [{
+                "employee_id": employee[0],
+                "employee_first_name": employee[1],
+                "employee_last_name": employee[2],
+                "description": employee[3],
+                "master_tag_name": employee[4],
+                "gallery_image" : employee[5]
+            } for employee in employees]
+        })
     except Exception as e:
         return jsonify({"error": "An error occurred while fetching employees."}), 500
 
