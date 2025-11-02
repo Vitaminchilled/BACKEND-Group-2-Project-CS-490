@@ -106,8 +106,8 @@ def register_salon():
     phone_number = data.get('phone_number')
     gender = data.get('gender') #Male | Female 
 
-    salon_category = data.get('salon_category') #1, 2, 3, 4, 5, 6, 7
     salon_name = data.get('salon_name')
+    description = data.get('description')
     salon_email = data.get('salon_email')
     salon_email_confirm = data.get('salon_email_confirm')
     salon_phone_number = data.get('salon_phone_number')
@@ -116,18 +116,21 @@ def register_salon():
     salon_state = data.get('salon_state')
     salon_postal_code = data.get('salon_postal_code')
     salon_country = data.get('salon_country')
+    master_tag_ids = data.get('master_tag_ids')
 
     #check if form is filled out, emails match 
     required_fields = [first_name, last_name, personal_email, personal_email_confirm, birth_year,
-                       phone_number, gender, salon_category, salon_name, salon_email, salon_email_confirm,
+                       phone_number, gender, salon_name, salon_email, salon_email_confirm,
                        salon_phone_number, salon_address, salon_city, salon_state, salon_postal_code,
-                       salon_country, username, password]
+                       salon_country, master_tag_ids, username, password]
     if not all(required_fields):
         return jsonify({'error': 'Missing required fields'}), 400
     if personal_email != personal_email_confirm:
         return jsonify({'error': 'Emails do not match'}), 400
     if salon_email != salon_email_confirm:
         return jsonify({'error': 'Emails do not match'}), 400
+    if master_tag_ids and not isinstance(master_tag_ids, list):
+        return jsonify({'error': 'master_tag_ids must be a list'}), 400
     
     mysql = current_app.config['MYSQL']
     cursor = mysql.connection.cursor()
@@ -168,10 +171,10 @@ def register_salon():
 
         #insert new salon into salons table
         query = """
-            insert into salons(owner_id, master_tag_id, name, description, email, phone_number, operating_hours, created_at, last_modified)
-            values(%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            insert into salons(owner_id, name, description, email, phone_number, created_at, last_modified)
+            values(%s,%s,%s,%s,%s,%s,%s)
         """
-        cursor.execute(query, (owner_id, salon_category, salon_name, None, salon_email, salon_phone_number, None, now, now))
+        cursor.execute(query, (owner_id, salon_name, description, salon_email, salon_phone_number, now, now))
         salon_id = cursor.lastrowid 
 
         #insert new salon address into addresses table
@@ -180,6 +183,15 @@ def register_salon():
             values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """
         cursor.execute(query, ('salon', salon_id, None, salon_address, salon_city, salon_state, salon_postal_code, salon_country, now, now))
+        
+        #insert salon tags
+        if master_tag_ids:
+            for master_tag_id in master_tag_ids:
+                cursor.execute(
+                    "insert ignore into entity_master_tags(entity_type, entity_id, master_tag_id) values (%s, %s, %s)",
+                    ('salon', salon_id, master_tag_id)
+                )
+        
         mysql.connection.commit()
         session.pop('register_username', None)
         session.pop('register_password', None)

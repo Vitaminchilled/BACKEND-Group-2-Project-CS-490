@@ -10,15 +10,17 @@ def get_active_loyalty(salon_id):
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select master_tags.name, loyalty_programs.name, loyalty_programs.points_required,
+            select loyalty_programs.name, loyalty_programs.points_required, group_concat(tags.name order by tags.name separator ', ') as tags,
             case
                 when loyalty_programs.is_percentage = true then concat(cast(loyalty_programs.discount_value as unsigned), '%%')
                 else concat('$', loyalty_programs.discount_value)
-            end as discount_display
+            end
             from loyalty_programs
-            join master_tags on master_tags.master_tag_id = loyalty_programs.master_tag_id
+            join entity_tags on entity_tags.entity_type = 'loyalty' and entity_tags.entity_id = loyalty_programs.loyalty_program_id
+            join tags on tags.tag_id = entity_tags.tag_id
             where (loyalty_programs.end_date is null or loyalty_programs.end_date > curdate())
-            and salon_id = %s;
+            and loyalty_programs.salon_id = %s
+            group by loyalty_programs.loyalty_program_id;
         """
         cursor.execute(query, (salon_id,))
         loyalty = cursor.fetchall()
@@ -33,14 +35,16 @@ def get_loyalty(salon_id):
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select master_tags.name, loyalty_programs.name, loyalty_programs.points_required,
+            select loyalty_programs.name, loyalty_programs.points_required, group_concat(tags.name order by tags.name separator ', ') as tags,
             case
                 when loyalty_programs.is_percentage = true then concat(cast(loyalty_programs.discount_value as unsigned), '%%')
                 else concat('$', loyalty_programs.discount_value)
             end as discount_display
             from loyalty_programs
-            join master_tags on master_tags.master_tag_id = loyalty_programs.master_tag_id
-            where salon_id = %s;
+            join entity_tags on entity_tags.entity_type = 'loyalty' and entity_tags.entity_id = loyalty_programs.loyalty_program_id
+            join tags on tags.tag_id = entity_tags.tag_id
+            where loyalty_programs.salon_id = %s
+            group by loyalty_programs.loyalty_program_id;
         """
         cursor.execute(query, (salon_id,))
         loyalty = cursor.fetchall()
@@ -53,35 +57,38 @@ def get_loyalty(salon_id):
 def add_loyalty(salon_id):
     data = request.get_json()
     name = data.get('name')
-    tag_name = request.json.get('tag_name')
+    tag_names = data.get('tag_names')  
     points_required = data.get('points_required')
     discount_value = data.get('discount_value')
     is_percentage = data.get('is_percentage')
     start_date = data.get('start_date')
     end_date = data.get('end_date')
 
-    if not all([name, tag_name, points_required, discount_value, is_percentage, start_date, end_date]):
+    if not all([name, tag_names, points_required, discount_value, start_date, end_date]) or is_percentage is None:
         return jsonify({"error": "Missing required fields"}), 400
     
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-    query = """
-        select master_tag_id
-        from master_tags
-        where name = %s
-    """
-    cursor.execute(query, (tag_name,))
-    tag_info = cursor.fetchone()
-    master_tag_id = tag_info[0]
-
+    if not isinstance(tag_names, list):
+        return jsonify({"error": "tag_names must be a list"}), 400
+   
     try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
         query = """
             insert into loyalty_programs
-            (salon_id, master_tag_id, name, points_required, discount_value, is_percentage, start_date, end_date)
-            values (%s, %s, %s, %s, %s, %s, %s, %s)
+            (salon_id, name, points_required, discount_value, is_percentage, start_date, end_date)
+            values (%s, %s, %s, %s, %s, %s, %s)
         """
-        cursor.execute(query, (salon_id, master_tag_id, name, points_required, discount_value, is_percentage, start_date, end_date))
+        cursor.execute(query, (salon_id, name, points_required, discount_value, is_percentage, start_date, end_date))
+        loyalty_program_id = cursor.lastrowid
+
+        for name in tag_names:
+            cursor.execute("select tag_id from tags where name = %s", (name,))
+            tag = cursor.fetchone()
+            if tag:
+                tag_id = tag[0]
+                cursor.execute("insert into entity_tags (entity_type, entity_id, tag_id) values (%s, %s, %s)", ('loyalty', loyalty_program_id, tag_id))
         mysql.connection.commit()
+        cursor.close()
         return jsonify({"message": "Loyalty program added successfully"}), 201
     except Exception as e:
         return jsonify({"error": "Failed to add loyalty program"}), 500 
@@ -91,35 +98,37 @@ def add_loyalty(salon_id):
 def edit_loyalty(loyalty_program_id):
     data = request.get_json()
     name = data.get('name')
-    tag_name = data.get('tag_name')
+    tag_names = data.get('tag_names')
     points_required = data.get('points_required')
     discount_value = data.get('discount_value')
     is_percentage = data.get('is_percentage')
     start_date = data.get('start_date')
     end_date = data.get('end_date')
 
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    if not all([name, tag_name, points_required, discount_value, start_date, end_date]) or is_percentage is None:
+    if not all([name, tag_names, points_required, discount_value, start_date, end_date]) or is_percentage is None:
         return jsonify({"error": "Missing required fields"}), 400
     
-    query = """
-        select master_tag_id
-        from master_tags
-        where name = %s
-    """
-    cursor.execute(query, (tag_name,))
-    tag_info = cursor.fetchone()
-    master_tag_id = tag_info[0]
-
+    if not isinstance(tag_names, list):
+        return jsonify({"error": "tag_names must be a list"}), 400
+    
     try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
         query = """
             update loyalty_programs
-            set name = %s, master_tag_id = %s, points_required = %s, discount_value = %s, is_percentage = %s, start_date = %s, end_date = %s
+            set name = %s, points_required = %s, discount_value = %s, is_percentage = %s, start_date = %s, end_date = %s
             where loyalty_program_id = %s
         """
-        cursor.execute(query, (name, master_tag_id, points_required, discount_value, is_percentage, start_date, end_date, program_id))
+        cursor.execute(query, (name, points_required, discount_value, is_percentage, start_date, end_date, loyalty_program_id))
+
+        #clear old tag names
+        cursor.execute("delete from entity_tags where entity_type = 'loyalty' and entity_id = %s", (loyalty_program_id,))
+        for name in tag_names:
+            cursor.execute("select tag_id from tags where name = %s", (name,))
+            tag = cursor.fetchone()
+            if tag:
+                tag_id = tag[0]
+                cursor.execute("insert into entity_tags (entity_type, entity_id, tag_id) values (%s, %s, %s)", ('loyalty', loyalty_program_id, tag_id))
         mysql.connection.commit()
         cursor.close()
         return jsonify({"message": "Loyalty program updated successfully"}), 200
