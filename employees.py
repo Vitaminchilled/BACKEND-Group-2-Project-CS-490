@@ -11,12 +11,10 @@ def get_employees(salon_id):
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select employees.employee_id, employees.first_name, employees.last_name, employees.description, master_tags.name, salon_gallery.image_url
-            from employees
-            left join master_tags on master_tags.master_tag_id = employees.master_tag_id
-            left join salon_gallery on salon_gallery.employee_id = employees.employee_id
-            where employees.salon_id = %s
-            order by employees.last_name
+            select e.employee_id, e.first_name, e.last_name, e.description
+            from employees e
+            where e.salon_id = %s
+            order by e.last_name
         """
         cursor.execute(query, (salon_id,))
         employees = cursor.fetchall()
@@ -26,9 +24,7 @@ def get_employees(salon_id):
                 "employee_id": employee[0],
                 "employee_first_name": employee[1],
                 "employee_last_name": employee[2],
-                "description": employee[3],
-                "master_tag_name": employee[4],
-                "gallery_image" : employee[5]
+                "description": employee[3]
             } for employee in employees]
         })
     except Exception as e:

@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify, session
+import json
 from flask import current_app
 
 salon_bp = Blueprint('salon', __name__)
@@ -70,22 +71,39 @@ def get_salons():
         offset = (page - 1) * per_page
 
         business_name = request.args.get('business_name', default="", type=str)
-        category = request.args.get('category', default="", type=str)
+        categories = request.args.getlist("categories")
         employee_first = request.args.get('employee_first', default="", type=str)
         employee_last = request.args.get('employee_last', default="", type=str)
-        filters = []
+
+        filters = ["s.is_verified = 1"]
         params = []
 
         if business_name:
-            filters.append("salons.name LIKE %s")
+            filters.append("s.name LIKE %s")
             params.append(f"%{business_name}%")
         
-        if category:
-            filters.append("master_tags.name LIKE %s")
-            params.append(f"%{category}%")
+        if categories:
+            placeholders = ', '.join(['%s'] * len(categories))
+
+            category_filter = f"""
+                s.salon_id IN (
+                    SELECT e.entity_id 
+                    FROM entity_master_tags e 
+                    LEFT JOIN master_tags m
+                    ON m.master_tag_id = e.master_tag_id
+                    WHERE e.entity_type = 'salon' AND 
+                    m.name in ({placeholders})
+                    GROUP BY e.entity_id
+                    HAVING COUNT(DISTINCT m.name) >= %s
+                )
+            """
+            
+            filters.append(category_filter)
+            params.extend(categories)
+            params.append(len(categories))
 
         if employee_first or employee_last:
-            employee_filter = "salons.salon_id IN (SELECT salon_id FROM employees WHERE "
+            employee_filter = "s.salon_id IN (SELECT salon_id FROM employees WHERE "
             subconditions = []
             subparams = []
 
@@ -103,32 +121,41 @@ def get_salons():
         where_clause = "WHERE " + " AND ".join(filters) if filters else ""
 
         count_query = f"""
-            SELECT COUNT(*)
-            FROM salons
-            JOIN master_tags ON master_tags.master_tag_id = salons.master_tag_id
-            LEFT JOIN salon_analytics ON salon_analytics.salon_id = salons.salon_id
+            SELECT COUNT(DISTINCT s.salon_id)
+            from salons s
+            left join entity_master_tags e
+                on e.entity_id = s.salon_id and e.entity_type = 'salon'
+            left join master_tags m 
+                on m.master_tag_id = e.master_tag_id
+            left join salon_analytics sa
+                on sa.salon_id = s.salon_id
             {where_clause}
         """
         cursor.execute(count_query, params)
         total = cursor.fetchone()[0]
 
         query = f"""
-            select salons.salon_id, 
-                    owner_id, salons.master_tag_id, 
-                    salons.name as salon_name, 
-                    master_tags.name as tag_name, 
-                    description, 
-                    email, 
-                    phone_number, 
-
-                    salon_analytics.average_rating as rating
-            from salons
-            join master_tags 
-            on master_tags.master_tag_id = salons.master_tag_id
-            left join salon_analytics 
-            on salon_analytics.salon_id = salons.salon_id
+            select s.salon_id, 
+                    s.owner_id,
+                    s.name as salon_name,
+                    COALESCE(
+                        JSON_ARRAYAGG(m.name), 
+                        JSON_ARRAY()
+                    ) as tag_names,
+                    s.description, 
+                    s.email, 
+                    s.phone_number,
+                    sa.average_rating
+            from salons s
+            left join entity_master_tags e
+                on e.entity_id = s.salon_id and e.entity_type = 'salon'
+            left join master_tags m 
+                on m.master_tag_id = e.master_tag_id
+            left join salon_analytics sa
+                on sa.salon_id = s.salon_id
             {where_clause}
-            order by salons.salon_id
+            group by s.salon_id
+            order by s.salon_id
             limit %s offset %s
         """
         cursor.execute(query, (*params, per_page, offset))
@@ -138,18 +165,26 @@ def get_salons():
         total_pages = -(-total // per_page)
         iter_pages = generate_iter_pages(current_page=page, total_pages=total_pages)
 
-        return jsonify({
-            'salons': [{
+        result = []
+        for salon in salons:
+            try:
+                tags = json.loads(salon[3]) if salon[3] else []
+            except Exception:
+                tags = []
+
+            result.append({
                 "salon_id": salon[0],
                 "owner_id": salon[1],
-                "master_tag_id": salon[2],
-                "salon_name": salon[3],
-                "tag_name": salon[4],
-                "description": salon[5],
-                "email": salon[6],
-                "phone_number": salon[7],
-                "rating": salon[8]
-            } for salon in salons],
+                "salon_name": salon[2],
+                "tag_names": tags,
+                "description": salon[4],
+                "email": salon[5],
+                "phone_number": salon[6],
+                "average_rating": salon[7]
+            })
+
+        return jsonify({
+            'salons': result,
             'page' : page,
             'total_retrieved' : len(salons),
             'total_pages' : total_pages,
@@ -165,34 +200,47 @@ def get_salon_info(salon_id):
         cursor = mysql.connection.cursor()
 
         salon_query = """
-            select salons.salon_id, 
-                    salons.owner_id, 
-                    salons.master_tag_id,
-                    salons.name, 
-                    description, 
-                    email, 
-                    phone_number, 
-
-                    address, 
-                    city, 
-                    state, 
-                    postal_code, 
-                    country,
-                    salon_analytics.average_rating
-            from salons
-            left join addresses
-            on addresses.salon_id = salons.salon_id
-            left join salon_analytics 
-            on salon_analytics.salon_id = salons.salon_id
-            where salons.salon_id=%s
+            select 
+                s.salon_id, 
+                s.owner_id, 
+                (
+                    select COALESCE(
+                        JSON_ARRAYAGG(t.name), JSON_ARRAY()
+                    )
+                    from entity_master_tags e
+                    left join master_tags m 
+                    on m.master_tag_id = e.master_tag_id
+                    left join tags t
+                    on t.master_tag_id = m.master_tag_id
+                    where e.entity_id = s.salon_id and e.entity_type = 'salon'
+                ) as tag_names,
+                s.name, 
+                s.description, 
+                s.email, 
+                s.phone_number, 
+                ad.address, 
+                ad.city, 
+                ad.state, 
+                ad.postal_code, 
+                ad.country,
+                sa.average_rating
+            from salons s
+            left join addresses ad
+            on ad.salon_id = s.salon_id
+            left join salon_analytics sa
+            on sa.salon_id = s.salon_id
+            where s.salon_id=%s
         """
         cursor.execute(salon_query, (salon_id,))
         salon = cursor.fetchone()
         if not salon:
             return jsonify({"error": "Salon not found"}), 404
         
-        cursor.execute("""select name from tags where master_tag_id=%s""", (salon[2],))
-        tags = [tag[0] for tag in cursor.fetchall()]
+        tag_list = []
+        try:
+            tag_list = json.loads(salon[2]) if salon[2] else []
+        except Exception:
+            tag_list = []
 
         cursor.close()
 
@@ -200,12 +248,10 @@ def get_salon_info(salon_id):
             'salon': {
                 "salon_id": salon[0],
                 "owner_id": salon[1],
-                "master_tag_id": salon[2],
                 "salon_name": salon[3],
                 "description": salon[4],
                 "email": salon[5],
                 "phone_number": salon[6],
-
                 "address": salon[7],
                 "city": salon[8],
                 "state": salon[9],
@@ -213,7 +259,7 @@ def get_salon_info(salon_id):
                 "country": salon[11],
                 "average_rating": salon[12]
             },
-            'tags' : tags, #tag list ex.["Salon Hair Cut","Blowout","Hair Wash","Hair Dye","Styling"]
+            'tags' : tag_list, #tag list ex.["Salon Hair Cut","Blowout","Hair Wash","Hair Dye","Styling"]
         }), 200
     except Exception as e:
         return jsonify({'error': 'Failed to fetch salon', 'details': str(e)}), 500
