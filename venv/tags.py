@@ -15,7 +15,12 @@ def get_master_tags():
         cursor.execute(query)
         master_tags = cursor.fetchall()
         cursor.close()
-        return jsonify({'master_tags': master_tags}), 200
+        return jsonify({
+            'master_tags': [{
+                "master_tag_id": master_tag[0],
+                "name": master_tag[1]
+            }for master_tag in master_tags]
+        }), 200
     except Exception as e:
         return jsonify({'error': 'Failed to fetch master tags', 'details': str(e)}), 500
     

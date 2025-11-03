@@ -12,17 +12,22 @@ def get_employees(salon_id):
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select employees.first_name, employees.last_name, employees.description, master_tags.name
-            from employees
-            join entity_master_tags on entity_master_tags.entity_id = employees.employee_id
-            join master_tags on entity_master_tags.master_tag_id = master_tags.master_tag_id
-            where entity_master_tags.entity_type = 'employees' and employees.salon_id = %s
-            order by employees.last_name;
+            select e.employee_id, e.first_name, e.last_name, e.description
+            from employees e
+            where e.salon_id = %s
+            order by e.last_name
         """
         cursor.execute(query, (salon_id,))
         employees = cursor.fetchall()
         cursor.close()
-        return jsonify(employees)
+        return jsonify({
+            'employees' : [{
+                "employee_id": employee[0],
+                "employee_first_name": employee[1],
+                "employee_last_name": employee[2],
+                "description": employee[3]
+            } for employee in employees]
+        })
     except Exception as e:
         return jsonify({"error": "An error occurred while fetching employees."}), 500
 
