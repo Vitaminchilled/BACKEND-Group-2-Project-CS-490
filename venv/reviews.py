@@ -189,3 +189,50 @@ def post_reply(review_id):
         return jsonify({'message': 'Reply posted successfully'}), 201
     except Exception as e:
         return jsonify({'error': 'Failed to post reply'}), 500
+
+@reviews_bp.route('/reviews/<int:review_id>', methods=['DELETE'])
+def delete_review(review_id):
+    try:
+        user_role = session.get('role')
+        if user_role != 'admin':
+            return jsonify({'error': 'Unauthorized'}), 401
+        
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+
+        query = """
+            delete from review_replies
+            where review_id = %s
+        """
+        cursor.execute(query, (review_id,))
+        query = """
+            delete from reviews
+            where review_id = %s
+        """
+        mysql.connection.commit()
+        cursor.close()
+        return jsonify({'message': 'Review deleted successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': 'Failed to delete review'}), 500
+
+@reviews_bp.route('/reviews/<int:reply_id>', methods=['DELETE'])
+def delete_reply(reply_id):
+    try:
+        user_role = session.get('role')
+        if user_role != 'admin':
+            return jsonify({'error': 'Unauthorized'}), 401
+        
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+
+        query = """
+            delete from review_replies
+            where reply_id = %s
+        """
+        cursor.execute(query, (reply_id,))
+        mysql.connection.commit()
+        cursor.close()
+        return jsonify({'message': 'Reply deleted successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': 'Failed to delete reply'}), 500
+    

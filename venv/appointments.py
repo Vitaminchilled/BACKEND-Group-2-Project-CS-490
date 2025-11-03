@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, current_app
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import current_app
 
 appointments_bp = Blueprint('appointments_bp', __name__)
