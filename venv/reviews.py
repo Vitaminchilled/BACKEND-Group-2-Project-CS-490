@@ -108,7 +108,25 @@ def get_reviews(salon_id):
     except Exception as e:
         return jsonify({'error': 'Failed to fetch reviews', 'details': str(e)}), 500
 
-
+@reviews_bp.route('/salon/<int:salon_id>/dashboard/reviews', methods=['GET'])
+def recent_three(salon_id):
+    try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+        query = """
+            select users.first_name, concat(left(users.last_name, 1), '.') as last_initial, reviews.rating, reviews.comment
+            from reviews
+            join users on reviews.customer_id = users.user_id
+            where salon_id = %s
+            limit 3;
+        """
+        cursor.execute(query, (salon_id,))
+        reviews = cursor.fetchall()
+        cursor.close()
+        return jsonify({'reviews': reviews}), 201
+    except Exception as e:
+        return jsonify({'error': 'Failed to fetch reviews', 'details': str(e)}), 500
+    
 @reviews_bp.route('/appointments/<int:appointment_id>/review', methods=['POST'])
 def post_review(appointment_id):
     try: 
