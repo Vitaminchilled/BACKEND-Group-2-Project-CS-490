@@ -10,10 +10,11 @@ def salonData():
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select s.name, sa.average_rating
-            from salons s
-            join salon_analytics sa on sa.salon_id = s.salon_id
-            limit 6
+            select salons.name, avg(reviews.rating) as average_rating
+            from salons
+            join reviews on reviews.salon_id = salons.salon_id
+            group by salons.name
+            limit 6;
         """
         cursor.execute(query)
         rows = cursor.fetchall()
@@ -30,34 +31,20 @@ def salonsToVerify():
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select 	s.name,
-                    s.email,
-                    s.phone_number,
-                    s.created_at,
-                    a.address,
-                    a.city,
-                    a.state,
-                    a.postal_code,
-                    a.country,
-                    u.first_name as owner_first_name,
-                    u.last_name as owner_last_name,
-                    u.email as owner_email,
-                    u.phone_number as owner_phone_number,
-                    u.birth_year as owner_birth_year
+            select *
             from salons s 
             join users u on u.user_id = s.owner_id
-            join addresses a on a.salon_id = s.salon_id;
+            limit 6
         """
         cursor.execute(query)
         rows = cursor.fetchall()
-        cols = [desc[0] for desc in cursor.description]
+        columns = [desc[0] for desc in cursor.description]
         cursor.close()
-        data = [dict(zip(cols, row)) for row in rows]
-
+        data = [dict(zip(columns, row)) for row in rows]
         return jsonify({'salons': data}), 200
     except Exception as e:
         return jsonify({'error': 'Failed to fetch salons', 'details': str(e)}), 500
-
+    
 def generate_iter_pages(current_page, total_pages, left_edge=2, right_edge=2, left_current=2, right_current=2):
     last = 0
     pages = []
