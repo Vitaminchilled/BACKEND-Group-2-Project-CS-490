@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, session
 from flask import current_app
+import json
 
 services_bp = Blueprint('services', __name__)
 
@@ -20,27 +21,47 @@ def get_services(salon_id):
             return jsonify({"error": "Salon not found"}), 404
 
         query = """
-            select service_id, services.master_tag_id, services.name, master_tags.name as tag_name, description, duration_minutes, price, is_active
-            from services
-            join master_tags 
-            on master_tags.master_tag_id = services.master_tag_id
-            where salon_id=%s
+            select s.service_id, 
+                    s.name,
+                    (
+                        select COALESCE(
+                            JSON_ARRAYAGG(
+                                t.name
+                            ), JSON_ARRAY()
+                        )
+                        from entity_tags e
+                        left join tags t on t.tag_id = e.tag_id
+                        where e.entity_id = s.service_id and e.entity_type = 'service'
+                    ) as tag_names,
+                    s.description, 
+                    s.duration_minutes, 
+                    s.price,
+                    s.is_active
+            from services s
+            where s.salon_id=%s and s.is_active=1
         """
         cursor.execute(query, (salon_id,))
         services = cursor.fetchall()
-        cursor.close()
-        return jsonify({
-            'services': [{
+
+        result = []
+        for service in services:
+            try:
+                tags = json.loads(service[2]) if service[2] else []
+            except Exception:
+                tags = []
+
+            result.append({
                 "service_id": service[0], 
-                "master_tag_id": service[1], 
-                "service_name": service[2], 
-                "master_tag_name": service[3], 
-                "description": service[4], 
-                "duration_minutes": service[5], 
-                "price": service[6], 
-                "is_active": service[7]
-            } for service in services]
-        }), 200
+                "service_name": service[1], 
+                "tag_names": tags, 
+                "description": service[3], 
+                "duration_minutes": service[4], 
+                "price": service[5], 
+                "is_active": service[6]
+            })
+
+        cursor.close()
+        return jsonify({'services': result}), 200
     except Exception as e:
         return jsonify({'error': 'Failed to fetch services', 'details': str(e)}), 500
     
