@@ -27,7 +27,7 @@ def get_users():
     
 
 #Admin Salon page - Retrieve all salons that are verified (DONE)
-@admin_bp.route('/admin/allSalons', methods=['GET'])
+@admin_bp.route('/admin/verifiedSalons', methods=['GET'])
 def allSalons():
     try:
         mysql = current_app.config['MYSQL']
