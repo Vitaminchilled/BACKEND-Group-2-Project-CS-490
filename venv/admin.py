@@ -5,8 +5,8 @@ admin_bp = Blueprint('admin', __name__)
 
 
 #Admin User Page - Retrieve all users (DONE)
-@admin_bp.route('/allUsers', methods=['GET'])
-def allUsers():
+@admin_bp.route('/admin/users', methods=['GET'])
+def get_users():
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -27,7 +27,7 @@ def allUsers():
     
 
 #Admin Salon page - Retrieve all salons that are verified (DONE)
-@admin_bp.route('/allSalons', methods=['GET'])
+@admin_bp.route('/admin/allSalons', methods=['GET'])
 def allSalons():
     try:
         mysql = current_app.config['MYSQL']
@@ -63,7 +63,7 @@ def allSalons():
         return jsonify({'error': 'Failed to fetch salons', 'details': str(e)}), 500
 
 #Admin Verify page - Retrieve all salons that need verification (DONE)
-@admin_bp.route('/salonsToVerify', methods=['GET'])
+@admin_bp.route('/admin/salonsToVerify', methods=['GET'])
 def salonsToVerify():
     try:
         mysql = current_app.config['MYSQL']
@@ -98,8 +98,8 @@ def salonsToVerify():
     except Exception as e:
         return jsonify({'error': 'Failed to fetch salons', 'details': str(e)}), 500
 
-#Admin Verify page - Handles verifying and rejecting salons (WORKS)
-@admin_bp.route('/verifySalon', methods=['POST'])
+#Admin Verify page - Handles verifying and rejecting salons (DONE)
+@admin_bp.route('/admin/verifySalon', methods=['POST'])
 def verifySalon():
     try:
         data = request.get_json()
@@ -168,7 +168,7 @@ def verifySalon():
 
 
 #Admin User page - Deletes specific user (WORKS)
-@admin_bp.route('/deleteUser', methods=['POST'])
+@admin_bp.route('/admin/deleteUser', methods=['DELETE'])
 def deleteUser():
     try:
         data = request.get_json()
