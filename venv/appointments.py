@@ -26,21 +26,18 @@ def book_appointment():
 
     # getting the time of the service
     cursor.execute("SELECT duration_minutes FROM services WHERE service_id = %s", (service_id,))
-    service = cursor.fetchone()
-    if not service:
+    duration = cursor.fetchone()
+    if not duration:
         cursor.close()
         return jsonify({'error': 'Invalid service ID'}), 400
-    duration = timedelta(minutes=service['duration_minutes'])
+    duration_minutes = timedelta(minutes=duration[0])
 
     # Calc end time of appointment
-    try:
-        start_dt = datetime.strptime(start_time, "%H:%M:%S")
-    except ValueError:
-        cursor.close()
-        return jsonify({'error': 'Invalid time format. Use HH:MM:SS'}), 400
-    end_dt = (start_dt + duration).time()
+    start_dt = datetime.strptime(start_time, "%H:%M:%S")
+    end_time = (start_dt + timedelta(minutes=duration_minutes)).time()
 
     # Check if employee is actually working at that time
+    weekday = datetime.strptime(appointment_date, "%Y-%m-%d").strftime("%A")
     cursor.execute("""
         SELECT * FROM time_slots
         WHERE employee_id = %s
@@ -79,10 +76,10 @@ def book_appointment():
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'booked',%s,%s)
         """, (customer_id, salon_id, employee_id, service_id, appointment_date,
               start_time, end_dt, notes, now, now))
-        current_app.mysql.connection.commit()
+        mysql.connection.commit()
         return jsonify({'message': 'Appointment booked successfully'}), 201
     except Exception as e:
-        current_app.mysql.connection.rollback()
+        mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -163,12 +160,12 @@ def update_appointment():
             WHERE appointment_id = %s
         """
         cursor.execute(query, (new_date, datetime.now(), appointment_id))
-        current_app.mysql.connection.commit()
+        mysql.connection.commit()
 
         return jsonify({'message': 'Appointment rescheduled successfully'}), 200
 
     except Exception as e:
-        current_app.mysql.connection.rollback()
+        mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -198,12 +195,12 @@ def cancel_appointment():
             WHERE appointment_id = %s
         """
         cursor.execute(query, ('cancelled', datetime.now(), appointment_id))
-        current_app.mysql.connection.commit()
+        mysql.connection.commit()
 
         return jsonify({'message': 'Appointment cancelled successfully'}), 200
 
     except Exception as e:
-        current_app.mysql.connection.rollback()
+        mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -217,9 +214,9 @@ def get_appointments(role, entity_id):
     cursor = mysql.connection.cursor()
 
     if role == 'customer' :
-        cursor.execute("SELECT * FROM appointments WHERE customer_id = %s ORDER BY appointment_date, start_time", (entity_id))
+        cursor.execute("SELECT * FROM appointments WHERE customer_id = %s ORDER BY appointment_date, start_time", (entity_id,))
     elif role == 'salon' :
-        cursor.execute("SELECT * FROM appointments WHERE salon_id = %s ORDER BY appointment_date, start_time", (entity_id))
+        cursor.execute("SELECT * FROM appointments WHERE salon_id = %s ORDER BY appointment_date, start_time", (entity_id,))
     else:
         cursor.close()
         return jsonify({'error': 'Invalid role entered'}), 400
