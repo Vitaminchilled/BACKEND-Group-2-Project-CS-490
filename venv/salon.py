@@ -11,11 +11,11 @@ def salonData():
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select salons.name, avg(reviews.rating) as average_rating
-            from salons
-            join reviews on reviews.salon_id = salons.salon_id
-            group by salons.name
-            limit 6;
+            select s.name, sa.average_rating
+            from salons s
+            join salon_analytics sa on sa.salon_id = s.salon_id
+            order by sa.average_rating desc
+            limit 6
         """
         cursor.execute(query)
         rows = cursor.fetchall()
