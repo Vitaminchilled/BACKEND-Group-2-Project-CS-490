@@ -205,7 +205,12 @@ def get_salon_info(salon_id):
                 s.owner_id, 
                 (
                     select COALESCE(
-                        JSON_ARRAYAGG(t.name), JSON_ARRAY()
+                        JSON_ARRAYAGG(
+                            JSON_OBJECT(
+                                'tag_id', t.tag_id,
+                                'name', t.name
+                            )
+                        ), JSON_ARRAY()
                     )
                     from entity_master_tags e
                     left join master_tags m 
