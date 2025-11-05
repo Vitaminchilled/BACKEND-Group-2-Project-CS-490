@@ -125,3 +125,84 @@ def pay_appointment():
         }), 201
     except Exception as e:
         return jsonify({'error': 'Payment was not processed'}), 500
+    
+@payment_bp.route('/payments/history/<int:customer_id>', methods=['GET'])
+def payment_history(customer_id):
+    try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+
+        query = """
+            select invoice_id, appointment_id, issued_date, subtotal_amount, tax_amount, total_amount, status
+            from invoices
+            where customer_id = %s
+            order by issued_date desc
+        """
+        cursor.execute(query, (customer_id,))
+        payments = cursor.fetchall()
+        cursor.close()
+
+        if not payments:
+            return jsonify({'message': 'No payment history found'}), 404
+
+        result = []
+        for payment in payments:
+            result.append({
+                'invoice_id': payment[0],
+                'appointment_id': payment[1],
+                'issued_date': payment[2].strftime('%Y-%m-%d'),
+                'subtotal': float(payment[3]),
+                'tax': float(payment[4]),
+                'total': float(payment[5]),
+                'status': payment[6]
+            })
+        return jsonify({'customer_id': customer_id, 'payments': result}), 200
+    except Exception as e:
+        return jsonify({'error': f'Error fetching payment history: {str(e)}'}), 500
+    
+@payment_bp.route('/payments/refund/<int:invoice_id>', methods=['POST'])
+def refund_payment(invoice_id):
+    try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+
+        query = """
+            select total_amount, status
+            from invoices 
+            where invoice_id = %s
+        """
+        cursor.execute(query, (invoice_id,))
+        invoice = cursor.fetchone()
+        if not invoice:
+            cursor.close()
+            return jsonify({'error': 'Invoice not found'}), 404
+        
+        if invoice[1] == 'cancelled':
+            cursor.close()
+            return jsonify({'error': 'This invoice has already been refunded'}), 400
+        
+        total_amount = float(invoice[0])
+        refund_id = ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
+        timestamp = datetime.now().isoformat()
+
+        query = """
+            update invoices
+            set status = 'cancelled', last_modified = %s
+            where invoice_id = %s
+        """
+        cursor.execute(query, (timestamp, invoice_id))
+
+        mysql.connection.commit()
+        cursor.close()
+
+        return jsonify({
+            'message': 'Refund successful',
+            'refund_id': refund_id,
+            'invoice_id': invoice_id,
+            'amount_refunded': total_amount,
+            'timestamp': timestamp
+        }), 200
+    except Exception as e:
+        mysql.connection.rollback()
+        return jsonify({'error': f'Refund failed: {str(e)}'}), 500
+

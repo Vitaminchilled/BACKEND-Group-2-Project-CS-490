@@ -27,6 +27,7 @@ from appointments import appointments_bp
 from loyalty import loyalty_bp
 from admin import admin_bp
 from reviews import reviews_bp
+from payment import payment_bp
 from salon_gallery import salon_gallery_bp
 
 app.register_blueprint(login_bp)
@@ -39,6 +40,7 @@ app.register_blueprint(appointments_bp)
 app.register_blueprint(loyalty_bp)
 app.register_blueprint(admin_bp)
 app.register_blueprint(reviews_bp)
+app.register_blueprint(payment_bp)
 app.register_blueprint(salon_gallery_bp)
 
 @app.route('/')
