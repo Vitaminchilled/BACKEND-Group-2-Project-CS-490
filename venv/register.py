@@ -3,7 +3,7 @@ from werkzeug.security import generate_password_hash
 from datetime import datetime
 from flask import current_app
 
-register_bp = Blueprint('register_bp', __name__)
+register_bp = Blueprint('register', __name__)
 
 #registering users (default page)
 @register_bp.route('/register/page', methods=['POST'])

@@ -4,8 +4,6 @@ from datetime import datetime
 
 employees_bp = Blueprint('employees', __name__)
 
-#implement salon gallery later
-
 @employees_bp.route('/salon/<int:salon_id>/employees', methods=['GET'])
 def get_employees(salon_id):
     try: 
@@ -37,7 +35,6 @@ def add_employee(salon_id):
     last_name = request.json.get('last_name')
     description = request.json.get('description')
     tag_name = request.json.get('tag_name')
-    #photo = request.json.get('photo')
 
     if not all([first_name, last_name, tag_name]):
         return jsonify({"error": "Missing required fields"}), 400
@@ -68,13 +65,6 @@ def add_employee(salon_id):
         cursor.execute(query, ('employees', employee_id, master_tag_id))
         mysql.connection.commit()
 
-        #if photo:
-            #query = """
-                #insert into salon_gallery (salon_id, employee_id, image_url)
-                #values (%s, %s, %s)
-            #"""
-           # cursor.execute(query, (salon_id, employee_id, photo))
-           # mysql.connection.commit()
         cursor.close()
         return jsonify({"message": "Employee added successfully", "employee_id": employee_id}), 201
     except Exception as e:
@@ -86,7 +76,6 @@ def edit_employee(salon_id, employee_id):
     last_name = request.json.get('last_name')
     description = request.json.get('description')
     tag_name = request.json.get('tag_name')
-    #photo = request.json.get('photo')  
 
     if not all([first_name, last_name, tag_name]):
         return jsonify({"error": "Missing required fields"}), 400
@@ -117,14 +106,6 @@ def edit_employee(salon_id, employee_id):
         cursor.execute(query, (master_tag_id, employee_id))
         mysql.connection.commit()
 
-        #if photo:
-            #query = """
-               # insert into salon_gallery (salon_id, employee_id, image_url)
-               # values (%s, %s, %s)
-               # on duplicate key update image_url = %s
-            #"""
-            #cursor.execute(query, (salon_id, employee_id, photo, photo))
-            #mysql.connection.commit()
         cursor.close()
         return jsonify({"message": "Employee updated successfully"}), 200
     except Exception as e:
