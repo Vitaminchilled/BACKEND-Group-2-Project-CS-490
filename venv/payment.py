@@ -1,3 +1,5 @@
+import random
+import string
 from flask import Blueprint, request, jsonify, current_app
 from datetime import datetime
 
@@ -42,8 +44,15 @@ def validate_card(card_number, exp_month, exp_year, cvv):
     
     return True, card_type
     
-def payment_process():
-    pass
+def payment_process(card_type, total_amount):
+    transaction_id = ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
+    auth_code = ''.join(random.choices(string.digits, k=6))
+    return {
+            'status': 'approved',
+            'transaction_id': transaction_id,
+            'auth_code': auth_code,
+            'timestamp': datetime.now().isoformat(),
+        }
 
 @payment_bp.route('/appointment/payment', methods=['POST'])
 def pay_appointment():
@@ -61,17 +70,31 @@ def pay_appointment():
 
     if not all([appointment_id, customer_id, wallet_id, subtotal, card_number, exp_month, exp_year, cvv]):
         return jsonify({'error': 'Missing required fields'}), 400
-    
+
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor()
+
+    #make sure appointment exists
+    query = """
+        select status
+        from appointments
+        where appointment_id = %s
+    """
+    cursor.execute(query, (appointment_id,))
+    appointment = cursor.fetchone()
+    if not appointment:
+        cursor.close()
+        return jsonify({'error': 'Appointment not found'}), 404
+    if appointment[0].lower() in ('paid', 'completed'):
+        cursor.close()
+        return jsonify({'error': 'This appointment has already been paid for'}), 400
+
     valid, result = validate_card(card_number, int(exp_month), int(exp_year), cvv)
     if not valid:
         return jsonify({'error': result}), 400
 
     card_type = result
-
-    #payment processing 
-
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
+    invoice = payment_process(card_type, total)
 
     try:
         query = """
@@ -83,7 +106,7 @@ def pay_appointment():
         
         query = """
             update appointments
-            set status = 'booked' 
+            set status = 'paid' 
             where appointment_id = %s
         """
         cursor.execute(query, (appointment_id,))
@@ -95,7 +118,10 @@ def pay_appointment():
             'invoice_id': invoice_id,
             'appointment_id': appointment_id,
             'total': total,
-            'card_type': card_type
+            'card_type': card_type,
+            'transaction_id': invoice['transaction_id'],
+            'auth_code': invoice['auth_code'],
+            'timestamp': invoice['timestamp']
         }), 201
     except Exception as e:
         return jsonify({'error': 'Payment was not processed'}), 500
