@@ -38,7 +38,7 @@ def get_services(salon_id):
                     s.price,
                     s.is_active
             from services s
-            where s.salon_id=%s and s.is_active=1
+            where s.salon_id=%s
         """
         cursor.execute(query, (salon_id,))
         services = cursor.fetchall()
