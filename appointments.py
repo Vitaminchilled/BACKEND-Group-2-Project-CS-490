@@ -1,5 +1,4 @@
 from flask import Blueprint, request, jsonify, current_app
-from werkzeug.security import check_password_hash
 from datetime import datetime, timedelta
 from flask import current_app
 
@@ -11,7 +10,6 @@ appointments_bp = Blueprint('appointments_bp', __name__)
 @appointments_bp.route('/appointments/book', methods=['POST'])
 def book_appointment():
     data = request.get_json()
-
     salon_id = data.get('salon_id')
     employee_id = data.get('employee_id')
     customer_id = data.get('customer_id')
@@ -23,7 +21,8 @@ def book_appointment():
     if not all([salon_id, employee_id, customer_id, service_id, appointment_date, start_time]):
         return jsonify({'error': 'Missing required fields'}), 400
 
-    cursor = current_app.mysql.connection.cursor(dictionary=True)
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor()
 
     # getting the time of the service
     cursor.execute("SELECT duration_minutes FROM services WHERE service_id = %s", (service_id,))
@@ -100,7 +99,8 @@ def view_appointments():
     if not all([user_role, user_id]):
         return jsonify({'error': 'Missing required parameters'}), 400
 
-    cursor = current_app.mysql.connection.cursor(dictionary=True)
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor()
 
     try:
         if user_role == 'customer':
@@ -148,7 +148,8 @@ def update_appointment():
     if not all([appointment_id, new_date]):
         return jsonify({'error': 'Missing required fields'}), 400
 
-    cursor = current_app.mysql.connection.cursor()
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor()
 
     try:
         cursor.execute("SELECT * FROM appointments WHERE appointment_id = %s", (appointment_id,))
@@ -182,7 +183,8 @@ def cancel_appointment():
     if not appointment_id:
         return jsonify({'error': 'Missing appointment ID'}), 400
 
-    cursor = current_app.mysql.connection.cursor()
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor()
 
     try:
         cursor.execute("SELECT * FROM appointments WHERE appointment_id = %s", (appointment_id,))
@@ -211,7 +213,8 @@ def cancel_appointment():
 
 @appointments_bp.route('/appointments/<string:role>/<int:entity_id>', methods=['GET'])
 def get_appointments(role, entity_id):
-    cursor = current_app.mysql.connection.cursor(dictionary=True)
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor()
 
     if role == 'customer' :
         cursor.execute("SELECT * FROM appointments WHERE customer_id = %s ORDER BY appointment_date, start_time", (entity_id))
