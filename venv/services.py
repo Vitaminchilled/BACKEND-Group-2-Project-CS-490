@@ -166,6 +166,13 @@ def delete_service(salon_id, service_id):
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
+
+        check_query = 'select count(*) from services where salon_id=%s'
+        cursor.execute(check_query, (salon_id,))
+        service_count = cursor.fetchone()[0]
+        if service_count == 1:
+            return jsonify({"error": "Salon must have at least one service. Cannot delete last instance."}), 409 #maybe 400???
+
         query = "delete from entity_tags where entity_type = 'service' and entity_id = %s"
         cursor.execute(query, (service_id,))
         query = "delete from services where service_id = %s and salon_id = %s"
