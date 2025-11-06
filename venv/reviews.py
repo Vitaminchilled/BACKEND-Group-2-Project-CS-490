@@ -19,7 +19,7 @@ def get_reviews(salon_id):
         salon = cursor.fetchone()
         if not salon:
             return jsonify({"error": "Salon not found"}), 404
-        owner_id = salon[1] 
+        owner_id = salon[1]
 
         review_count_query = """
             select count(*)
@@ -30,7 +30,7 @@ def get_reviews(salon_id):
         review_count = cursor.fetchone()
 
         query = """
-            SELECT 
+            select 
                 r.review_id,
                 r.salon_id,
                 r.customer_id,
@@ -39,7 +39,7 @@ def get_reviews(salon_id):
                 r.image_url,
                 r.review_date,
                 (
-                    SELECT COALESCE(
+                    select COALESCE(
                         JSON_ARRAYAGG(
                             JSON_OBJECT(
                                 'reply_id', rr.reply_id,
@@ -51,17 +51,17 @@ def get_reviews(salon_id):
                             )
                         ), JSON_ARRAY()
                     )
-                    FROM review_replies rr
-                    LEFT JOIN users uu ON rr.user_id = uu.user_id
-                    WHERE rr.review_id = r.review_id
-                ) AS replies_json,
+                    from review_replies rr
+                    left join users uu on rr.user_id = uu.user_id
+                    where rr.review_id = r.review_id
+                ) as replies_json,
                 u.first_name,
                 u.last_name,
                 u.user_id
-            FROM reviews r
-            LEFT JOIN users u ON u.user_id = r.customer_id
-            WHERE r.salon_id=%s
-            ORDER BY r.review_date DESC
+            from reviews r
+            left join users u on u.user_id = r.customer_id
+            where r.salon_id=%s
+            order by r.review_date desc
         """
         cursor.execute(query, (salon_id,))
         reviews = cursor.fetchall()
@@ -75,6 +75,7 @@ def get_reviews(salon_id):
 
             customer_name = f"{review[8]} {review[9][0].upper()}." if review[8] and review[9] else review[8] or "Anonymous"
             formatted_replies = []
+
             for reply in replies:
                 if reply["user_id"] == owner_id:
                     display_name = "Owner"
@@ -104,7 +105,6 @@ def get_reviews(salon_id):
 
         cursor.close()
         return jsonify({'reviews': result, "review_count": review_count}), 200
-
     except Exception as e:
         return jsonify({'error': 'Failed to fetch reviews', 'details': str(e)}), 500
 
@@ -126,7 +126,7 @@ def recent_three(salon_id):
         return jsonify({'reviews': reviews}), 201
     except Exception as e:
         return jsonify({'error': 'Failed to fetch reviews', 'details': str(e)}), 500
-    
+
 @reviews_bp.route('/appointments/<int:appointment_id>/review', methods=['POST'])
 def post_review(appointment_id):
     try: 
