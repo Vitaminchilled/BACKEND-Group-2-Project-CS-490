@@ -25,7 +25,6 @@ def salonData():
         return jsonify({'salons': data}), 200
     except Exception as e:
         return jsonify({'error': 'Failed to fetch salons', 'details': str(e)}), 500
-
     
 def generate_iter_pages(current_page, total_pages, left_edge=2, right_edge=2, left_current=2, right_current=2):
     last = 0
@@ -187,7 +186,12 @@ def get_salon_info(salon_id):
                 s.owner_id, 
                 (
                     select COALESCE(
-                        JSON_ARRAYAGG(t.name), JSON_ARRAY()
+                        JSON_ARRAYAGG(
+                            JSON_OBJECT(
+                                'tag_id', t.tag_id,
+                                'name', t.name
+                            )
+                        ), JSON_ARRAY()
                     )
                     from entity_master_tags e
                     left join master_tags m 

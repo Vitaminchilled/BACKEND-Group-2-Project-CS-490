@@ -205,4 +205,3 @@ def refund_payment(invoice_id):
     except Exception as e:
         mysql.connection.rollback()
         return jsonify({'error': f'Refund failed: {str(e)}'}), 500
-

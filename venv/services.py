@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, session
 from flask import current_app
+import json
 
 services_bp = Blueprint('services', __name__)
 
@@ -8,18 +9,59 @@ def get_services(salon_id):
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
+
+        salon_query = """
+            select salon_id
+            from salons
+            where salon_id=%s
+        """
+        cursor.execute(salon_query, (salon_id,))
+        salon = cursor.fetchone()
+        if not salon:
+            return jsonify({"error": "Salon not found"}), 404
+
         query = """
-            select services.service_id, services.name, services.description, services.duration_minutes, services.price, services.is_active, group_concat(tags.name separator ', ') as tags
-            from services
-            left join entity_tags on entity_tags.entity_id = services.service_id and entity_tags.entity_type = 'service'
-            left join tags on tags.tag_id = entity_tags.tag_id
-            where services.salon_id = %s
-            group by services.service_id;
+            select s.service_id, 
+                    s.name,
+                    (
+                        select COALESCE(
+                            JSON_ARRAYAGG(
+                                t.name
+                            ), JSON_ARRAY()
+                        )
+                        from entity_tags e
+                        left join tags t on t.tag_id = e.tag_id
+                        where e.entity_id = s.service_id and e.entity_type = 'service'
+                    ) as tag_names,
+                    s.description, 
+                    s.duration_minutes, 
+                    s.price,
+                    s.is_active
+            from services s
+            where s.salon_id=%s
         """
         cursor.execute(query, (salon_id,))
         services = cursor.fetchall()
+
+        result = []
+        for service in services:
+            try:
+                tags = json.loads(service[2]) if service[2] else []
+            except Exception:
+                tags = []
+
+            result.append({
+                "service_id": service[0], 
+                "name": service[1], 
+                "tags": tags, 
+                "description": service[3], 
+                "duration_minutes": service[4], 
+                "price": service[5], 
+                "is_active": service[6]
+            })
+
         cursor.close()
-        return jsonify({'services': services}), 200
+        return jsonify({'services': result}), 200
     except Exception as e:
         return jsonify({'error': 'Failed to fetch services', 'details': str(e)}), 500
     
@@ -124,6 +166,13 @@ def delete_service(salon_id, service_id):
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
+
+        check_query = 'select count(*) from services where salon_id=%s'
+        cursor.execute(check_query, (salon_id,))
+        service_count = cursor.fetchone()[0]
+        if service_count == 1:
+            return jsonify({"error": "Salon must have at least one service. Cannot delete last instance."}), 409 #maybe 400???
+
         query = "delete from entity_tags where entity_type = 'service' and entity_id = %s"
         cursor.execute(query, (service_id,))
         query = "delete from services where service_id = %s and salon_id = %s"
