@@ -189,7 +189,39 @@ def upload_image(salon_id):
 
 @salon_gallery_bp.route('/salon/gallery/<int:gallery_id>/update', methods=['PUT'])
 def update_image(gallery_id):
-    pass
+    data = request.json
+    image_url = data.get('image_url')
+    description = data.get('description')
+
+    if not any([image_url, description]):
+        return jsonify({'error': 'No fields to update provided'}), 400
+    
+    try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+        query = """
+            select salon_id, employee_id, service_id 
+            from salon_gallery
+            where gallery_id = %s
+        """
+        cursor.execute(query, (gallery_id,))
+        gallery = cursor.fetchone()
+        if not gallery:
+            cursor.close()
+            return jsonify({'error': 'Gallery image not found'}), 404
+
+        query = """
+            update salon_gallery
+            set image_url = %s, description = %s
+            where gallery_id = %s
+        """
+        cursor.execute(query, (image_url, description, gallery_id))
+        mysql.connection.commit()
+        cursor.close()
+        return jsonify({'message': 'Image updated successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': f'Failed to update image: {str(e)}'}), 500
+    
 
 @salon_gallery_bp.route('/salon/gallery/<int:gallery_id>/delete', methods=['DELETE'])
 def delete_image(gallery_id):
