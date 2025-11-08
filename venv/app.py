@@ -30,6 +30,7 @@ from admin import admin_bp
 from reviews import reviews_bp
 from payment import payment_bp
 from salon_gallery import salon_gallery_bp
+from cart import cart_bp
 
 app.register_blueprint(login_bp)
 app.register_blueprint(register_bp)
@@ -44,6 +45,7 @@ app.register_blueprint(admin_bp)
 app.register_blueprint(reviews_bp)
 app.register_blueprint(payment_bp)
 app.register_blueprint(salon_gallery_bp)
+app.register_blueprint(cart_bp)
 
 @app.route('/')
 def home():
