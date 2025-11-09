@@ -38,21 +38,79 @@ def validate_card(card_number, exp_month, exp_year, cvv):
         if len(cvv) != 4:
             return False, "Invalid cvv"        
 
+    if exp_month < 1 or exp_month > 12:
+        return False, "Invalid month"
+    
     now = datetime.now()
     if (exp_year < now.year) or (exp_year == now.year and exp_month < now.month):
         return False, "Card expired"
     
     return True, card_type
 
-#add wallet
-#list wallet 
+def voucher_redeemable(mysql, loyalty_program_id, service_id):
+    if service_id is None:
+        return True
+    
+    cursor = mysql.connection.cursor()
+    query = """
+        select tag_id
+        from entity_tags
+        where entity_type = 'loyalty' and entity_id = %s
+    """
+    cursor.execute(query, (loyalty_program_id,))
+    loyalty_tags = {row[0] for row in cursor.fetchall()}
 
-def apply_discount(mysql, customer_id, salon_id, subtotal, loyalty_voucher_id=None, promo_code=None):
+    query = """
+        select tag_id
+        from entity_tags
+        where entity_type = 'service' and entity_id = %s
+    """
+    cursor.execute(query, (service_id,))
+    service_tags = {row[0] for row in cursor.fetchall()}
+
+    return len(loyalty_tags.intersection(service_tags)) > 0
+
+@payment_bp.route('/wallets/<int:customer_id>', methods=['GET'])
+def list_wallets(customer_id):
+    try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+        
+        query = """
+            select wallet_id, last_four, exp_month, exp_year, card_type, is_default
+            from wallets
+            where customer_id = %s
+            order by is_default desc, exp_year desc, exp_month desc
+        """
+        cursor.execute(query, (customer_id,))
+        wallets = cursor.fetchall()
+        cursor.close()
+
+        if not wallets:
+            return jsonify({'message': 'No saved wallets found', 'wallets': []}), 200
+        
+        result = []
+        for wallet in wallets:
+            wallet_id, last_four, exp_month, exp_year, card_type, is_default = wallet
+            result.append({
+                'wallet_id': wallet_id,
+                'last_four': last_four,
+                'exp_month': exp_month,
+                'exp_year': exp_year,
+                'card_type': card_type,
+                'is_default': bool(is_default)
+            })
+        return jsonify({'customer_id': customer_id, 'wallets': result}), 200
+
+    except Exception as e:
+        return jsonify({'error': f'Failed to fetch wallets: {str(e)}'}), 500
+    
+def apply_discount(mysql, customer_id, salon_id, service_id, subtotal, loyalty_voucher_id=None, promo_code=None):
     cursor = mysql.connection.cursor()
     discount_amount = 0
     if loyalty_voucher_id:
         query = """
-            select loyalty_programs.discount_value, loyalty_programs.is_percentage
+            select loyalty_programs.loyalty_program_id, loyalty_programs.discount_value, loyalty_programs.is_percentage
             from customer_vouchers
             join loyalty_programs on loyalty_programs.loyalty_program_id = customer_vouchers.loyalty_program_id
             where customer_vouchers.voucher_id = %s and customer_vouchers.customer_id = %s and customer_vouchers.salon_id = %s and customer_vouchers.redeemed = 0
@@ -60,12 +118,17 @@ def apply_discount(mysql, customer_id, salon_id, subtotal, loyalty_voucher_id=No
         cursor.execute(query, (loyalty_voucher_id, customer_id, salon_id))
         voucher = cursor.fetchone()
         
-        if voucher:
-            discount_value, is_percentage = voucher
-            discount_amount += (subtotal * (discount_value / 100)) if is_percentage else discount_value
-        else:
+        if not voucher:
             cursor.close()
             return None, "Invalid or already redeemed loyalty voucher"
+
+        loyalty_program_id, discount_value, is_percentage = voucher
+
+        if not voucher_redeemable(mysql, loyalty_program_id, service_id):
+            cursor.close()
+            return None, "Voucher does not apply to this service"
+        
+        discount_amount += (subtotal * (discount_value / 100)) if is_percentage else discount_value
         
     if promo_code:
         query = """
@@ -126,9 +189,10 @@ def pay_appointment():
 
     #make sure appointment exists
     query = """
-        select salon_id, service_id, price, status
+        select appointments.salon_id, appointments.service_id, services.price, appointments.status
         from appointments
-        where appointment_id = %s
+        join services on services.service_id = appointments.service_id
+        where appointments.appointment_id = %s
     """
     cursor.execute(query, (appointment_id,))
     appointment = cursor.fetchone()
@@ -141,11 +205,12 @@ def pay_appointment():
         cursor.close()
         return jsonify({'error': 'This appointment has already been paid for'}), 400
     
-    discount_amount, error = apply_discount(mysql, customer_id, salon_id, subtotal, loyalty_voucher_id, promo_code)
+    discount_amount, error = apply_discount(mysql, customer_id, salon_id, service_id, subtotal, loyalty_voucher_id, promo_code)
     if error:
         return jsonify({'error': error}), 400
 
     subtotal = max(round(subtotal - discount_amount, 2), 0)
+    subtotal = float(subtotal)
     tax = round(subtotal * 0.08875, 2)
     total = round(subtotal + tax, 2)
 
@@ -170,6 +235,7 @@ def pay_appointment():
                 values(%s, %s, %s, %s, %s, true)
             """
             cursor.execute(query, (customer_id, card_number[-4:], exp_year, exp_month, card_type))
+            wallet_id = cursor.lastrowid
     else:
         query = """
             select last_four, exp_month, exp_year, card_type
@@ -228,7 +294,7 @@ def pay_appointment():
             'timestamp': invoice['timestamp']
         }), 201
     except Exception as e:
-        return jsonify({'error': 'Payment was not processed'}), 500
+        return jsonify({'error': f'Payment was not processed: {str(e)}'}), 500
     
 @payment_bp.route('/cart/payment', methods=['POST'])
 def pay_cart():
@@ -295,6 +361,7 @@ def pay_cart():
                 values(%s, %s, %s, %s, %s, true)
             """
             cursor.execute(query, (customer_id, card_number[-4:], exp_year, exp_month, card_type))
+            wallet_id = cursor.lastrowid
     else:
         query = """
             select last_four, exp_month, exp_year, card_type
@@ -312,11 +379,20 @@ def pay_cart():
     for product_id, quantity, price, name, stock in items:
         subtotal += price * quantity
 
-    discount_amount, error = apply_discount(mysql, customer_id, salon_id, subtotal, loyalty_voucher_id=data.get("loyalty_voucher_id"), promo_code=promo_code)
+    discount_amount, error = apply_discount(
+        mysql,
+        customer_id=customer_id,
+        salon_id=salon_id,
+        service_id=None,
+        subtotal=subtotal,
+        loyalty_voucher_id=loyalty_voucher_id,
+        promo_code=promo_code
+    )
     if error:
         return jsonify({'error': error}), 400
         
     subtotal = max(round(subtotal - discount_amount, 2), 0)
+    subtotal = float(subtotal)
     tax = round(subtotal * 0.08875, 2)
     total = round(subtotal + tax, 2)
 
@@ -338,10 +414,10 @@ def pay_cart():
                 cursor.close()
                 return jsonify({'error': f'Insufficient stock for {name}'}), 400
             query = """
-                insert into invoice_line_items(invoice_id, item_type, service_id, quantity, unit_price, description)
-                values(%s, %s, %s, %s, %s, %s)
+                insert into invoice_line_items(invoice_id, item_type, product_id, service_id, quantity, unit_price, description)
+                values (%s, %s, %s, %s, %s, %s, %s)
             """
-            cursor.execute(query, (invoice_id, 'product', product_id, quantity, price, name))
+            cursor.execute(query, (invoice_id, 'product', product_id, None, quantity, price, name))
 
             query = """
                 update products
