@@ -200,6 +200,29 @@ def view_appointments():
     finally:
         cursor.close()
 
+#to view how many appointments are on a specific day (calendar view)
+@appointments_bp.route('/salon/<int:salon_id>/appointments/calendar', methods=['GET'])
+def total_appointments(salon_id):
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor()
+
+    try:
+        query = """
+            select appointment_date, count(*) as total_appointments
+            from appointments
+            where salon_id = %s and status in('booked', 'paid')
+            group by appointment_date
+            order by appointment_date asc
+        """
+        cursor.execute(query, (salon_id,))
+        result = cursor.fetchall()
+        return jsonify(result), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+
 # Rescheduling function! this function is going to need the new appointment date.
 @appointments_bp.route('/appointments/update', methods=['PUT'])
 def update_appointment():
