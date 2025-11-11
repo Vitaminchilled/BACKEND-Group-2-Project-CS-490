@@ -96,33 +96,33 @@ def get_employee_image(salon_id, employee_id):
         cursor.close()
         return jsonify({'error': 'No employee photo to be displayed'}), 500
     
-#get service thumbnails
-@salon_gallery_bp.route('/salon/<int:salon_id>/services/<int:service_id>/image', methods=['GET'])
-def get_service_image(salon_id, service_id):
+#get product thumbnails
+@salon_gallery_bp.route('/salon/<int:salon_id>/products/<int:product_id>/image', methods=['GET'])
+def get_product_image(salon_id, product_id):
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
 
         query = """
-            select gallery_id, salon_id, service_id, image_url, created_at, last_modified
+            select gallery_id, salon_id, product_id, image_url, created_at, last_modified
             from salon_gallery
-            where salon_id = %s and service_id = %s
+            where salon_id = %s and product_id = %s
         """
-        cursor.execute(query, (salon_id, service_id))
+        cursor.execute(query, (salon_id, product_id))
         image = cursor.fetchone()
         cursor.close()
 
         return jsonify({
             'gallery_id': image[0],
             'salon_id': image[1],
-            'service_id': image[2],
+            'product_id': image[2],
             'image_url': image[3],
             'created_at': image[4].strftime('%Y-%m-%d %H:%M:%S') if image[4] else None,
             'last_modified': image[5].strftime('%Y-%m-%d %H:%M:%S') if image[5] else None
         }), 200
     except Exception as e:
         cursor.close()
-        return jsonify({'error': 'No service photo to be displayed'}), 500
+        return jsonify({'error': 'No product photo to be displayed'}), 500
     
 @salon_gallery_bp.route('/salon/<int:salon_id>/gallery/upload', methods=['POST'])
 def upload_image(salon_id):
@@ -130,7 +130,7 @@ def upload_image(salon_id):
     image_url = data.get('image_url')
     description = data.get('description', '')
     employee_id = data.get('employee_id', None)  # For employee profile pictures
-    service_id = data.get('service_id', None)    # For service thumbnails
+    product_id = data.get('product_id', None)    # For product thumbnails
     is_primary = data.get('is_primary', False) # For salon profile pictures
 
     if not image_url:
@@ -151,19 +151,19 @@ def upload_image(salon_id):
                 cursor.close()
                 return jsonify({'error': f'Employee {employee_id} does not belong to salon {salon_id}'}), 400
             
-        if service_id:
+        if product_id:
             query = """
-                select service_id
-                from services
-                where service_id = %s and salon_id = %s
+                select product_id
+                from products
+                where product_id = %s and salon_id = %s
             """
-            cursor.execute(query, (service_id, salon_id))
+            cursor.execute(query, (product_id, salon_id))
         if not cursor.fetchone():
             cursor.close()
-            return jsonify({'error': f'Service {service_id} does not belong to salon {salon_id}'}), 400
+            return jsonify({'error': f'Product {product_id} does not belong to salon {salon_id}'}), 400
             
         #remove the previous profile photo
-        if is_primary and not employee_id and not service_id:
+        if is_primary and not employee_id and not product_id:
             query = """
                 update salon_gallery
                 set is_primary = false 
@@ -172,10 +172,10 @@ def upload_image(salon_id):
             cursor.execute(query, (salon_id,))
 
         query = """
-            insert into salon_gallery(salon_id, image_url, description, employee_id, service_id, is_primary)
+            insert into salon_gallery(salon_id, image_url, description, employee_id, product_id, is_primary)
             values(%s, %s, %s, %s, %s, %s)
         """
-        cursor.execute(query, (salon_id, image_url, description, employee_id, service_id, is_primary))
+        cursor.execute(query, (salon_id, image_url, description, employee_id, product_id, is_primary))
         mysql.connection.commit()
         gallery_id = cursor.lastrowid
         cursor.close()
@@ -200,7 +200,7 @@ def update_image(gallery_id):
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select salon_id, employee_id, service_id 
+            select salon_id, employee_id, product_id 
             from salon_gallery
             where gallery_id = %s
         """
