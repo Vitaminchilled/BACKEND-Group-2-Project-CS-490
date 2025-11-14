@@ -364,7 +364,7 @@ def pay_cart():
             wallet_id = cursor.lastrowid
     else:
         query = """
-            select last_four, exp_month, exp_year, card_type
+            select distinct last_four, exp_month, exp_year, card_type
             from wallets
             where wallet_id = %s and customer_id = %s
         """

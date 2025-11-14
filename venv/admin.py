@@ -14,7 +14,7 @@ def get_users():
             select *
             from users
             where role != 'admin'
-            order by 'role'
+            order by role
         """
         cursor.execute(query)
         rows = cursor.fetchall()
