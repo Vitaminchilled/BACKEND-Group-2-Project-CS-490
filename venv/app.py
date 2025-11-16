@@ -33,6 +33,7 @@ from salon_gallery import salon_gallery_bp
 from cart import cart_bp
 from products import products_bp
 from user_dashboard import user_dashboard_bp
+from analytics import analytics_bp
 
 app.register_blueprint(login_bp)
 app.register_blueprint(register_bp)
@@ -50,6 +51,7 @@ app.register_blueprint(salon_gallery_bp)
 app.register_blueprint(cart_bp)
 app.register_blueprint(products_bp)
 app.register_blueprint(user_dashboard_bp)
+app.register_blueprint(analytics_bp)
 
 @app.route('/')
 def home():
