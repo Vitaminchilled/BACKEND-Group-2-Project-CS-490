@@ -168,7 +168,7 @@ def admin_vouchers_redeemed():
 
     query = """
         select count(*) as total_vouchers_redeemed
-        from vouchers
+        from customer_vouchers
         where redeemed = 1
     """
 
@@ -307,8 +307,8 @@ def salon_appointment_trend(salon_id):
     cursor = mysql.connection.cursor()
 
     query = """
-        select date_format(appointment_date, '%Y-%m') as month,
-               count(*) as total_appointments
+        select date_format(appointment_date, '%%Y-%%m') as month,
+        count(*) as total_appointments
         from appointments
         where salon_id = %s
         group by month
@@ -327,7 +327,7 @@ def salon_revenue_trend(salon_id):
     cursor = mysql.connection.cursor()
 
     query = """
-        select date_format(invoices.issued_date, '%Y-%m') as month,
+        select date_format(invoices.issued_date, '%%Y-%%m') as month,
                sum(invoices.total_amount) as revenue
         from invoices
         join appointments on appointments.appointment_id = invoices.appointment_id
