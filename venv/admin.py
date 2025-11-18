@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, session
 from flask import current_app
+from emails import send_email
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -116,6 +117,36 @@ def verifySalon():
                 WHERE salon_id = %s
             """, (salon_id,))
         else:
+            reason = data.get("reason", "Your salon application was rejected.")
+            #log the reason for rejection
+            cursor.execute("""
+                insert into salon_rejections(salon_id, admin_id, reason)
+                values (%s, %s, %s)
+            """, (salon_id, session.get("user_id"), reason))
+
+            #notify the owner via email
+            cursor.execute("""
+                select owner_id, email, name
+                from salons 
+                where salon_id = %s
+            """, (salon_id,))
+            owner_id, salon_email, salon_name = cursor.fetchone()    
+            
+            cursor.execute("""
+                insert into notifications(user_id, title, message)
+                values (%s, %s, %s)
+            """, (owner_id, "Salon Application Rejected", f"Dear {salon_name}, your salon application has been rejected for the following reason: {reason}"))
+
+            try:
+                send_email(
+                    to=salon_email,
+                    subject="Salon Application Rejected",
+                    body=f"Dear {salon_name},\n\nWe regret to inform you that your salon application has been rejected for the following reason:\n\n{reason}\n\nIf you have any questions, please contact our support team.\n\nBest regards,\nSalon Management Team"
+                )
+            except Exception as e:
+                print(f"Failed to send rejection email: {e}")
+
+            #delete the salon's data from all related tables
             cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
             cursor.execute("""
                 DELETE FROM review_replies 
@@ -138,7 +169,6 @@ def verifySalon():
             cursor.execute("DELETE FROM customer_vouchers WHERE salon_id = %s", (salon_id,))
             cursor.execute("DELETE FROM appointments WHERE salon_id = %s", (salon_id,))
             cursor.execute("DELETE FROM carts WHERE salon_id = %s", (salon_id,))
-            cursor.execute("DELETE FROM employee_schedules WHERE salon_id = %s", (salon_id,)) 
             cursor.execute("DELETE FROM employee_salaries WHERE salon_id = %s", (salon_id,))
             cursor.execute("DELETE FROM time_slots WHERE salon_id = %s", (salon_id,))
             cursor.execute("DELETE FROM salon_gallery WHERE salon_id = %s", (salon_id,))
@@ -212,7 +242,6 @@ def deleteUser():
                 cursor.execute("DELETE FROM customer_vouchers WHERE salon_id = %s", (salon_id,))
                 cursor.execute("DELETE FROM appointments WHERE salon_id = %s", (salon_id,))
                 cursor.execute("DELETE FROM carts WHERE salon_id = %s", (salon_id,))
-                cursor.execute("DELETE FROM employee_schedules WHERE salon_id = %s", (salon_id,)) 
                 cursor.execute("DELETE FROM employee_salaries WHERE salon_id = %s", (salon_id,))
                 cursor.execute("DELETE FROM time_slots WHERE salon_id = %s", (salon_id,))
                 cursor.execute("DELETE FROM salon_gallery WHERE salon_id = %s", (salon_id,))

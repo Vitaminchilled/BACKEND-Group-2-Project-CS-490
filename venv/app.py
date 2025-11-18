@@ -1,6 +1,8 @@
 from flask import Flask
 from flask_mysqldb import MySQL
 from flask_cors import CORS
+from flask_mail import Mail
+from flask_mail import Message
 
 app = Flask(__name__)
 CORS(app)
@@ -14,7 +16,16 @@ app.config.update(
     MYSQL_DB='salon'
 )
 
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USE_SSL'] = False
+app.config['MAIL_USERNAME'] = "wearevanity.co@gmail.com"
+app.config['MAIL_PASSWORD'] = "xsqlypwrnixgxrct"
+app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
+
 mysql = MySQL(app)
+mail = Mail(app)
 app.config['MYSQL'] = mysql
 
 from login import login_bp
@@ -57,5 +68,18 @@ app.register_blueprint(analytics_bp)
 def home():
     return "it works!"
 
+@app.route("/email")
+def email():
+    from emails import send_email
+    try:
+        send_email(
+            to="alexiades.v@gmail.com",
+            subject="Test Email",
+            body="This is a test from Flask-Mail."
+        )
+        return "Email sent successfully!"
+    except Exception as e:
+        return f"Email failed: {e}"
+    
 if __name__ == '__main__':
     app.run(debug=True)
