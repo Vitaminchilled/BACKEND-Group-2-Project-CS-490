@@ -27,7 +27,7 @@ def get_reviews(salon_id):
             where salon_id=%s
         """
         cursor.execute(review_count_query, (salon_id,))
-        review_count = cursor.fetchone()
+        review_count = cursor.fetchone()[0]
 
         query = """
             select 
@@ -211,12 +211,25 @@ def post_reply(review_id):
 @reviews_bp.route('/reviews/<int:review_id>', methods=['DELETE'])
 def delete_review(review_id):
     try:
-        user_role = session.get('role')
-        if user_role != 'admin':
-            return jsonify({'error': 'Unauthorized'}), 401
-        
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
+
+        #find out who posted the review
+        query = """
+            select customer_id
+            from reviews
+            where review_id = %s
+        """
+        cursor.execute(query, (review_id,))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'error': 'Review not found'}), 404
+        reviewer_id = row[0]
+
+        user_id = session.get('user_id')
+        user_role = session.get('role')
+        if user_role != 'admin' and user_id != reviewer_id:
+            return jsonify({'error': 'Unauthorized'}), 401
 
         query = """
             delete from review_replies
@@ -236,12 +249,25 @@ def delete_review(review_id):
 @reviews_bp.route('/reviews/<int:reply_id>', methods=['DELETE'])
 def delete_reply(reply_id):
     try:
-        user_role = session.get('role')
-        if user_role != 'admin':
-            return jsonify({'error': 'Unauthorized'}), 401
-        
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
+
+        #find out who posted the reply
+        query = """
+            select customer_id
+            from review_replies
+            where reply_id = %s
+        """
+        cursor.execute(query, (reply_id,))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'error': 'Review not found'}), 404
+        replier_id = row[0]
+
+        user_id = session.get('user_id') 
+        user_role = session.get('role')
+        if user_role != 'admin' and user_id != replier_id:
+            return jsonify({'error': 'Unauthorized'}), 401
 
         query = """
             delete from review_replies

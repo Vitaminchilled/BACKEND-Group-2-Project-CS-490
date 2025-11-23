@@ -47,6 +47,37 @@ def validate_card(card_number, exp_month, exp_year, cvv):
     
     return True, card_type
 
+def store_card(mysql, customer_id, card_number, exp_month, exp_year, card_type):
+    cursor = mysql.connection.cursor()
+
+    query = """
+        select wallet_id
+        from wallets
+        where customer_id = %s and last_four = %s and exp_month = %s and exp_year = %s and card_type = %s
+    """
+    cursor.execute(query, (customer_id, card_number[-4:], exp_month, exp_year, card_type))
+    existing = cursor.fetchone()
+
+    if not existing:
+        query = """
+            update wallets
+            set is_default = false
+            where customer_id = %s
+        """
+        cursor.execute(query, (customer_id,))
+
+        #new card is default
+        query = """
+            insert into wallets(customer_id, last_four, exp_year, exp_month, card_type, is_default)
+            values(%s, %s, %s, %s, %s, true)
+        """
+        cursor.execute(query, (customer_id, card_number[-4:], exp_year, exp_month, card_type))
+        wallet_id = cursor.lastrowid
+    else:
+        wallet_id = existing[0]
+    cursor.close()
+    return wallet_id
+    
 def voucher_redeemable(mysql, loyalty_program_id, service_id):
     if service_id is None:
         return True
@@ -70,8 +101,48 @@ def voucher_redeemable(mysql, loyalty_program_id, service_id):
 
     return len(loyalty_tags.intersection(service_tags)) > 0
 
+def award_loyalty_points(mysql, customer_id, salon_id, total_amount, default_points_per_dollar=1.0):
+    cursor = mysql.connection.cursor()
+    #check if existing customer 
+    query = """
+        select points_id, points_per_dollar
+        from customer_points
+        where customer_id = %s and salon_id = %s
+    """
+    cursor.execute(query, (customer_id, salon_id))
+    row = cursor.fetchone()
+
+    if row:
+        points_id, points_per_dollar = row
+        points_per_dollar = float(points_per_dollar)
+        points_earned = int(total_amount * points_per_dollar)
+
+        #add points earned to their existing points
+        query = """
+            update customer_points
+            set points_earned = points_earned + %s,
+            available_points = available_points + %s,
+            last_modified = current_timestamp
+            where points_id = %s
+        """
+        cursor.execute(query, (points_earned, points_earned, points_id))
+    else:
+        points_earned = int(total_amount * default_points_per_dollar)
+        query = """
+            insert into customer_points(customer_id, salon_id, points_earned, available_points, points_per_dollar, created_at, last_modified)
+            values(%s, %s, %s, %s, %s, current_timestamp, current_timestamp)
+        """
+        cursor.execute(query, (customer_id, salon_id, points_earned, points_earned, default_points_per_dollar))
+
+    mysql.connection.commit()
+    cursor.close()
+    return points_earned
+
 @payment_bp.route('/wallets/<int:customer_id>', methods=['GET'])
 def list_wallets(customer_id):
+    user_id = session.get('user_id')
+    if user_id != customer_id:
+        return jsonify({'error': 'Unauthorized'}), 401
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -166,6 +237,10 @@ def payment_process(card_type, total_amount):
 
 @payment_bp.route('/appointments/payment', methods=['POST'])
 def pay_appointment():
+    user_id = session.get('user_id')
+    if user_id != customer_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
     data = request.json
     appointment_id = data.get('appointment_id')
     customer_id = data.get('customer_id')
@@ -222,20 +297,7 @@ def pay_appointment():
         
         #save card if requested
         if save_card and card_number:
-            query = """
-                update wallets
-                set is_default = false
-                where customer_id = %s
-            """
-            cursor.execute(query, (customer_id,))
-
-            #new card is default
-            query = """
-                insert into wallets(customer_id, last_four, exp_year, exp_month, card_type, is_default)
-                values(%s, %s, %s, %s, %s, true)
-            """
-            cursor.execute(query, (customer_id, card_number[-4:], exp_year, exp_month, card_type))
-            wallet_id = cursor.lastrowid
+            wallet_id = store_card(mysql, customer_id, card_number, exp_month, exp_year, card_type)
     else:
         query = """
             select last_four, exp_month, exp_year, card_type
@@ -276,6 +338,8 @@ def pay_appointment():
         """
         cursor.execute(query, (appointment_id,))
 
+        points_earned = award_loyalty_points(mysql, customer_id, salon_id, total)
+
         mysql.connection.commit()
         cursor.close()
 
@@ -287,6 +351,7 @@ def pay_appointment():
             'tax': tax,
             'total': total,
             'card_type': card_type,
+            'points_earned': points_earned,
             'promo_applied': promo_code if discount_amount > 0 else None,
             "voucher_applied": loyalty_voucher_id if loyalty_voucher_id else None,
             'transaction_id': invoice['transaction_id'],
@@ -298,6 +363,10 @@ def pay_appointment():
     
 @payment_bp.route('/cart/payment', methods=['POST'])
 def pay_cart():
+    user_id = session.get('user_id')
+    if user_id != customer_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
     data = request.json
     customer_id = data.get('customer_id')
     salon_id = data.get('salon_id')
@@ -348,20 +417,7 @@ def pay_cart():
             return jsonify({'error': card_type}), 400
         
         if save_card and card_number:
-            query = """
-                update wallets
-                set is_default = false
-                where customer_id = %s
-            """
-            cursor.execute(query, (customer_id,))
-
-            #new card is default
-            query = """
-                insert into wallets(customer_id, last_four, exp_year, exp_month, card_type, is_default)
-                values(%s, %s, %s, %s, %s, true)
-            """
-            cursor.execute(query, (customer_id, card_number[-4:], exp_year, exp_month, card_type))
-            wallet_id = cursor.lastrowid
+            wallet_id = store_card(mysql, customer_id, card_number, exp_month, exp_year, card_type)
     else:
         query = """
             select distinct last_four, exp_month, exp_year, card_type
@@ -428,6 +484,8 @@ def pay_cart():
 
         cursor.execute("update carts set status='completed' where cart_id = %s", (cart_id,))
 
+        points_earned = award_loyalty_points(mysql, customer_id, salon_id, total)
+
         mysql.connection.commit()
         cursor.close()
 
@@ -438,6 +496,7 @@ def pay_cart():
             'tax': tax,
             'total': total,
             'card_type': card_type,
+            'points_earned': points_earned,
             'promo_applied': promo_code if discount_amount > 0 else None,
             "voucher_applied": loyalty_voucher_id if loyalty_voucher_id else None,
             'transaction_id': invoice['transaction_id'],
@@ -450,6 +509,9 @@ def pay_cart():
     
 @payment_bp.route('/payments/history/<int:customer_id>', methods=['GET'])
 def payment_history(customer_id):
+    user_id = session.get('user_id')
+    if user_id != customer_id:
+        return jsonify({'error': 'Unauthorized'}), 401
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
