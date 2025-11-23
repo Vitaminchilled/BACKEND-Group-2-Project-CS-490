@@ -1,7 +1,6 @@
 import os
 from flask import Blueprint, request, jsonify, current_app
 from datetime import datetime
-#all the photos will be gathered from google or online image hosting site
 
 salon_gallery_bp = Blueprint('salon_gallery', __name__)
 
@@ -123,18 +122,18 @@ def get_product_image(salon_id, product_id):
     except Exception as e:
         cursor.close()
         return jsonify({'error': 'No product photo to be displayed'}), 500
-    
+
+
 @salon_gallery_bp.route('/salon/<int:salon_id>/gallery/upload', methods=['POST'])
 def upload_image(salon_id):
-    data = request.json
-    image_url = data.get('image_url')
-    description = data.get('description', '')
-    employee_id = data.get('employee_id', None)  # For employee profile pictures
-    product_id = data.get('product_id', None)    # For product thumbnails
-    is_primary = data.get('is_primary', False) # For salon profile pictures
+    image = request.files.get('image')
+    description = request.form.get('description', '')
+    employee_id = request.form.get('employee_id', None)  # For employee profile pictures
+    product_id = request.form.get('product_id', None)    # For product thumbnails
+    is_primary = request.form.get('is_primary', "false").lower() == "true" # For salon profile pictures
 
-    if not image_url:
-        return jsonify({'error': 'image_url is required'}), 400
+    if not image:
+        return jsonify({'error': 'Image file is required'}), 400
     
     try:
         mysql = current_app.config['MYSQL']
@@ -171,37 +170,47 @@ def upload_image(salon_id):
             """
             cursor.execute(query, (salon_id,))
 
+        #insert the image record
+        upload_folder = os.path.join(current_app.root_path, 'gallery')
+        os.makedirs(upload_folder, exist_ok=True)
+
+        filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{image.filename}"
+        filepath = os.path.join(upload_folder, filename)
+
+        image.save(filepath)
+        image_url = f"/gallery/{filename}"
+
         query = """
-            insert into salon_gallery(salon_id, image_url, description, employee_id, product_id, is_primary)
-            values(%s, %s, %s, %s, %s, %s)
+            insert into salon_gallery (salon_id, employee_id, product_id, image_url, description, is_primary, created_at, last_modified)
+            values (%s, %s, %s, %s, %s, %s, %s, %s)
         """
-        cursor.execute(query, (salon_id, image_url, description, employee_id, product_id, is_primary))
+        cursor.execute(query, (salon_id, employee_id, product_id, image_url, description, is_primary, datetime.now(), datetime.now()))
         mysql.connection.commit()
         gallery_id = cursor.lastrowid
         cursor.close()
+
         return jsonify({
-            'message': 'Image added successfully',
+            'message': 'Image uploaded successfully',
             'gallery_id': gallery_id,
             'image_url': image_url
-        }), 201
+        }), 201  
+
     except Exception as e:
         return jsonify({'error': f'Failed to upload image: {str(e)}'}), 500
 
 @salon_gallery_bp.route('/salon/gallery/<int:gallery_id>/update', methods=['PUT'])
 def update_image(gallery_id):
-    data = request.json
-    image_url = data.get('image_url')
-    description = data.get('description')
+    image = request.files.get('image')
+    description = request.form.get('description')
 
-    if not any([image_url, description]):
+    if not any([image, description]):
         return jsonify({'error': 'No fields to update provided'}), 400
     
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select salon_id, employee_id, product_id 
-            from salon_gallery
+            select image_url from salon_gallery
             where gallery_id = %s
         """
         cursor.execute(query, (gallery_id,))
@@ -210,12 +219,23 @@ def update_image(gallery_id):
             cursor.close()
             return jsonify({'error': 'Gallery image not found'}), 404
 
+        new_image_url = gallery[0]
+        if image:
+            upload_folder = os.path.join(current_app.root_path, 'gallery')
+            os.makedirs(upload_folder, exist_ok=True)
+
+            filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{image.filename}"
+            filepath = os.path.join(upload_folder, filename)
+
+            image.save(filepath)
+            new_image_url = f"/gallery/{filename}"
+
         query = """
             update salon_gallery
-            set image_url = %s, description = %s
+            set image_url = %s, description = %s, last_modified = now()
             where gallery_id = %s
         """
-        cursor.execute(query, (image_url, description, gallery_id))
+        cursor.execute(query, (new_image_url, description, gallery_id))
         mysql.connection.commit()
         cursor.close()
         return jsonify({'message': 'Image updated successfully'}), 200
