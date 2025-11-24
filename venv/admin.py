@@ -1,6 +1,5 @@
 from flask import Blueprint, request, jsonify, session
 from flask import current_app
-from emails import send_email
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -8,6 +7,17 @@ admin_bp = Blueprint('admin', __name__)
 #Admin User Page - Retrieve all users (DONE)
 @admin_bp.route('/admin/users', methods=['GET'])
 def get_users():
+    """
+    Admin Page user retrival
+    ---
+    tags:
+      - Admin Page
+    responses:
+      200:
+        description: Success
+      500:
+        description: Failed to fetch users
+    """
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -15,7 +25,7 @@ def get_users():
             select *
             from users
             where role != 'admin'
-            order by role
+            order by 'role'
         """
         cursor.execute(query)
         rows = cursor.fetchall()
@@ -30,6 +40,17 @@ def get_users():
 #Admin Salon page - Retrieve all salons that are verified (DONE)
 @admin_bp.route('/admin/verifiedSalons', methods=['GET'])
 def allSalons():
+    """
+    Admin Page salon retrival
+    ---
+    tags:
+      - Admin Page
+    responses:
+      200:
+        description: Success
+      500:
+        description: Failed to fetch salons
+    """
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -66,6 +87,17 @@ def allSalons():
 #Admin Verify page - Retrieve all salons that need verification (DONE)
 @admin_bp.route('/admin/salonsToVerify', methods=['GET'])
 def salonsToVerify():
+    """
+    Admin Page unverified salon retrival
+    ---
+    tags:
+      - Admin Page
+    responses:
+      200:
+        description: salons
+      500:
+        description: Failed to fetch salons
+    """
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -102,6 +134,30 @@ def salonsToVerify():
 #Admin Verify page - Handles verifying and rejecting salons (DONE)
 @admin_bp.route('/admin/verifySalon', methods=['POST'])
 def verifySalon():
+    """
+    Admin verify page
+    ---
+    tags:
+      - Admin Page
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            salon_id:
+              type: integer
+            is_verified:
+              type: boolean
+    responses:
+      200:
+        description: Data received successfully
+      500:
+        description: Failed to verify salon
+    """
     try:
         data = request.get_json()
         salon_id = data["salon_id"]
@@ -117,36 +173,6 @@ def verifySalon():
                 WHERE salon_id = %s
             """, (salon_id,))
         else:
-            reason = data.get("reason", "Your salon application was rejected.")
-            #log the reason for rejection
-            cursor.execute("""
-                insert into salon_rejections(salon_id, admin_id, reason)
-                values (%s, %s, %s)
-            """, (salon_id, session.get("user_id"), reason))
-
-            #notify the owner via email
-            cursor.execute("""
-                select owner_id, email, name
-                from salons 
-                where salon_id = %s
-            """, (salon_id,))
-            owner_id, salon_email, salon_name = cursor.fetchone()    
-            
-            cursor.execute("""
-                insert into notifications(user_id, title, message)
-                values (%s, %s, %s)
-            """, (owner_id, "Salon Application Rejected", f"Dear {salon_name}, your salon application has been rejected for the following reason: {reason}"))
-
-            try:
-                send_email(
-                    to=salon_email,
-                    subject="Salon Application Rejected",
-                    body=f"Dear {salon_name},\n\nWe regret to inform you that your salon application has been rejected for the following reason:\n\n{reason}\n\nIf you have any questions, please contact our support team.\n\nBest regards,\nSalon Management Team"
-                )
-            except Exception as e:
-                print(f"Failed to send rejection email: {e}")
-
-            #delete the salon's data from all related tables
             cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
             cursor.execute("""
                 DELETE FROM review_replies 
@@ -169,6 +195,7 @@ def verifySalon():
             cursor.execute("DELETE FROM customer_vouchers WHERE salon_id = %s", (salon_id,))
             cursor.execute("DELETE FROM appointments WHERE salon_id = %s", (salon_id,))
             cursor.execute("DELETE FROM carts WHERE salon_id = %s", (salon_id,))
+            cursor.execute("DELETE FROM employee_schedules WHERE salon_id = %s", (salon_id,)) 
             cursor.execute("DELETE FROM employee_salaries WHERE salon_id = %s", (salon_id,))
             cursor.execute("DELETE FROM time_slots WHERE salon_id = %s", (salon_id,))
             cursor.execute("DELETE FROM salon_gallery WHERE salon_id = %s", (salon_id,))
@@ -200,6 +227,23 @@ def verifySalon():
 #Admin User page - Deletes specific user (WORKS)
 @admin_bp.route('/admin/deleteUser', methods=['DELETE'])
 def deleteUser():
+    """
+    Delete a user
+    ---
+    tags:
+      - Admin Page
+    parameters:
+      - name: user_id
+        in: path
+        type: integer
+        required: true
+        description: ID of the user to delete
+    responses:
+      200:
+        description: User Deleted
+      500:
+        description: Failed to delete user
+    """
     try:
         data = request.get_json()
         user_id = data["user_id"]
@@ -242,6 +286,7 @@ def deleteUser():
                 cursor.execute("DELETE FROM customer_vouchers WHERE salon_id = %s", (salon_id,))
                 cursor.execute("DELETE FROM appointments WHERE salon_id = %s", (salon_id,))
                 cursor.execute("DELETE FROM carts WHERE salon_id = %s", (salon_id,))
+                cursor.execute("DELETE FROM employee_schedules WHERE salon_id = %s", (salon_id,)) 
                 cursor.execute("DELETE FROM employee_salaries WHERE salon_id = %s", (salon_id,))
                 cursor.execute("DELETE FROM time_slots WHERE salon_id = %s", (salon_id,))
                 cursor.execute("DELETE FROM salon_gallery WHERE salon_id = %s", (salon_id,))

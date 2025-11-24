@@ -6,6 +6,25 @@ reviews_bp = Blueprint('reviews', __name__)
 
 @reviews_bp.route('/salon/<int:salon_id>/reviews', methods=['GET'])
 def get_reviews(salon_id):
+    """
+Get all reviews for a salon with replies
+---
+tags:
+  - Reviews
+parameters:
+  - name: salon_id
+    in: path
+    required: true
+    type: integer
+    description: Salon ID
+responses:
+  200:
+    description: Reviews retrieved successfully with reply count
+  404:
+    description: Salon not found
+  500:
+    description: Error fetching reviews
+"""
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -110,6 +129,23 @@ def get_reviews(salon_id):
 
 @reviews_bp.route('/salon/<int:salon_id>/dashboard/reviews', methods=['GET'])
 def recent_three(salon_id):
+    """
+Get recent 3 reviews for salon dashboard
+---
+tags:
+  - Reviews
+parameters:
+  - name: salon_id
+    in: path
+    required: true
+    type: integer
+    description: Salon ID
+responses:
+  201:
+    description: Recent reviews retrieved successfully
+  500:
+    description: Error fetching reviews
+"""
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -129,6 +165,45 @@ def recent_three(salon_id):
 
 @reviews_bp.route('/appointments/<int:appointment_id>/review', methods=['POST'])
 def post_review(appointment_id):
+    """
+Post a review for a completed appointment
+---
+tags:
+  - Reviews
+consumes:
+  - application/json
+parameters:
+  - name: appointment_id
+    in: path
+    required: true
+    type: integer
+  - in: body
+    name: body
+    required: true
+    schema:
+      type: object
+      properties:
+        rating:
+          type: integer
+        comment:
+          type: string
+        image_url:
+          type: string
+      required:
+        - rating
+        - comment
+responses:
+  201:
+    description: Review posted successfully
+  400:
+    description: Missing fields, appointment not completed, or review already exists
+  401:
+    description: Unauthorized
+  403:
+    description: Cannot review other users' appointments
+  500:
+    description: Failed to post review
+"""
     try: 
         user_id = session.get('user_id')
         if not user_id:
@@ -183,6 +258,38 @@ def post_review(appointment_id):
 
 @reviews_bp.route('/reviews/<int:review_id>/reply', methods=['POST'])
 def post_reply(review_id):
+    """
+Post a reply to a review
+---
+tags:
+  - Reviews
+consumes:
+  - application/json
+parameters:
+  - name: review_id
+    in: path
+    required: true
+    type: integer
+  - in: body
+    name: body
+    required: true
+    schema:
+      type: object
+      properties:
+        reply:
+          type: string
+      required:
+        - reply
+responses:
+  201:
+    description: Reply posted successfully
+  400:
+    description: Reply cannot be empty
+  401:
+    description: Unauthorized
+  500:
+    description: Failed to post reply
+"""
     try:
         user_id = session.get('user_id')
         if not user_id:
@@ -210,6 +317,26 @@ def post_reply(review_id):
 
 @reviews_bp.route('/reviews/<int:review_id>', methods=['DELETE'])
 def delete_review(review_id):
+    """
+Delete a review (admin or review owner only)
+---
+tags:
+  - Reviews
+parameters:
+  - name: review_id
+    in: path
+    required: true
+    type: integer
+responses:
+  200:
+    description: Review deleted successfully
+  401:
+    description: Unauthorized
+  404:
+    description: Review not found
+  500:
+    description: Failed to delete review
+"""
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -248,6 +375,26 @@ def delete_review(review_id):
 
 @reviews_bp.route('/reviews/<int:reply_id>', methods=['DELETE'])
 def delete_reply(reply_id):
+    """
+Delete a reply (admin or reply owner only)
+---
+tags:
+  - Reviews
+parameters:
+  - name: reply_id
+    in: path
+    required: true
+    type: integer
+responses:
+  200:
+    description: Reply deleted successfully
+  401:
+    description: Unauthorized
+  404:
+    description: Reply not found
+  500:
+    description: Failed to delete reply
+    """
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()

@@ -3,6 +3,7 @@ from flask_mysqldb import MySQL
 from flask_cors import CORS
 from flask_mail import Mail
 from flask_mail import Message
+from flasgger import Swagger
 
 app = Flask(__name__)
 CORS(app)
@@ -28,6 +29,19 @@ mysql = MySQL(app)
 mail = Mail(app)
 app.config['MYSQL'] = mysql
 
+swagger_template = {
+    "swagger": "2.0",
+    "info": {
+        "title": "Vanity API",
+        "description": "API documentation for salon management backend",
+        "version": "1.0"
+    },
+    "basePath": "/"
+}
+
+Swagger(app, template=swagger_template) 
+
+
 from login import login_bp
 from register import register_bp
 from services import services_bp
@@ -44,7 +58,6 @@ from salon_gallery import salon_gallery_bp
 from cart import cart_bp
 from products import products_bp
 from user_dashboard import user_dashboard_bp
-from analytics import analytics_bp
 
 app.register_blueprint(login_bp)
 app.register_blueprint(register_bp)
@@ -62,7 +75,6 @@ app.register_blueprint(salon_gallery_bp)
 app.register_blueprint(cart_bp)
 app.register_blueprint(products_bp)
 app.register_blueprint(user_dashboard_bp)
-app.register_blueprint(analytics_bp)
 
 @app.route('/')
 def home():
@@ -80,6 +92,6 @@ def email():
         return "Email sent successfully!"
     except Exception as e:
         return f"Email failed: {e}"
-    
+
 if __name__ == '__main__':
     app.run(debug=True)
