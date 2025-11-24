@@ -142,12 +142,28 @@ def book_appointment():
 
         # inserting into time slot, idk if this is neccesary, 
         # might end up removing time_slot table from database down the line...
+        # cursor.execute("""
+        #     INSERT INTO time_slots (
+        #         salon_id, employee_id, day, start_time, end_time, is_available
+        #     ) VALUES (%s, %s, %s, %s, %s, FALSE)
+        # """, (salon_id, employee_id, appointment_date, start_time, end_time_str, 1))
+        # time_slot_id = cursor.lastrowid
+
+        # time_slot_id = time_slot_id['slot_id']
+
         cursor.execute("""
-            INSERT INTO time_slots (
-                salon_id, employee_id, date, start_time, end_time, is_available
-            ) VALUES (%s, %s, %s, %s, %s, FALSE)
-        """, (salon_id, employee_id, appointment_date, start_time, end_time_str))
-        time_slot_id = cursor.lastrowid
+            SELECT slot_id
+            FROM time_slots
+            WHERE salon_id = %s AND employee_id = %s AND day = %s AND start_time <= %s AND end_time >= %s AND is_available = TRUE
+            LIMIT 1
+        """, (employee_id, salon_id, day_name, start_time, end_time_str))
+
+        time_slot_id = cursor.fetchone()
+
+        if not time_slot_id:
+            return jsonify({'error': 'No matching time slot found'}), 400
+
+        time_slot_id = time_slot_id['slot_id']
 
         # Insert into appoint
         now = datetime.now()
@@ -672,7 +688,7 @@ def employee_weekly_availability(employee_id):
                 # Check for overlap
                 latest_start = max(check_time, interval_start)
                 earliest_end = min(check_end_time, interval_end)
-                if latest_start <= earliest_end:
+                if latest_start < earliest_end:
                     return True
             return False
 
