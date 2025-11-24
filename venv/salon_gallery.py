@@ -7,6 +7,25 @@ salon_gallery_bp = Blueprint('salon_gallery', __name__)
 #get salon pictures
 @salon_gallery_bp.route('/salon/<int:salon_id>/gallery', methods=['GET'])
 def get_gallery(salon_id):
+    """
+Get all gallery images for a salon
+---
+tags:
+  - Salon Gallery
+parameters:
+  - name: salon_id
+    in: path
+    required: true
+    type: integer
+    description: Salon ID
+responses:
+  200:
+    description: Gallery images retrieved successfully
+  404:
+    description: No images found for this salon
+  500:
+    description: Error fetching gallery
+"""
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -43,6 +62,23 @@ def get_gallery(salon_id):
 #get salon's primary picture
 @salon_gallery_bp.route('/salon/<int:salon_id>/image', methods=['GET'])
 def get_salon_image(salon_id):
+    """
+Get salon's primary profile picture
+---
+tags:
+  - Salon Gallery
+parameters:
+  - name: salon_id
+    in: path
+    required: true
+    type: integer
+    description: Salon ID
+responses:
+  200:
+    description: Primary salon image retrieved successfully
+  500:
+    description: No profile picture found
+"""
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -70,6 +106,26 @@ def get_salon_image(salon_id):
 #get emloyees pictures
 @salon_gallery_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/image', methods=['GET'])
 def get_employee_image(salon_id, employee_id):
+    """
+Get employee profile picture
+---
+tags:
+  - Salon Gallery
+parameters:
+  - name: salon_id
+    in: path
+    required: true
+    type: integer
+  - name: employee_id
+    in: path
+    required: true
+    type: integer
+responses:
+  200:
+    description: Employee image retrieved successfully
+  500:
+    description: No employee photo found
+"""
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -98,6 +154,26 @@ def get_employee_image(salon_id, employee_id):
 #get product thumbnails
 @salon_gallery_bp.route('/salon/<int:salon_id>/products/<int:product_id>/image', methods=['GET'])
 def get_product_image(salon_id, product_id):
+    """
+Get product thumbnail image
+---
+tags:
+  - Salon Gallery
+parameters:
+  - name: salon_id
+    in: path
+    required: true
+    type: integer
+  - name: product_id
+    in: path
+    required: true
+    type: integer
+responses:
+  200:
+    description: Product image retrieved successfully
+  500:
+    description: No product photo found
+"""
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -126,6 +202,47 @@ def get_product_image(salon_id, product_id):
 
 @salon_gallery_bp.route('/salon/<int:salon_id>/gallery/upload', methods=['POST'])
 def upload_image(salon_id):
+    """
+Upload image to salon gallery
+---
+tags:
+  - Salon Gallery
+consumes:
+  - multipart/form-data
+parameters:
+  - name: salon_id
+    in: path
+    required: true
+    type: integer
+  - name: image
+    in: formData
+    required: true
+    type: file
+    description: Image file to upload
+  - name: description
+    in: formData
+    type: string
+    description: Image description
+  - name: employee_id
+    in: formData
+    type: integer
+    description: For employee profile pictures
+  - name: product_id
+    in: formData
+    type: integer
+    description: For product thumbnails
+  - name: is_primary
+    in: formData
+    type: boolean
+    description: Set as salon primary profile picture
+responses:
+  201:
+    description: Image uploaded successfully
+  400:
+    description: Image file required or employee/product doesn't belong to salon
+  500:
+    description: Failed to upload image
+"""
     image = request.files.get('image')
     description = request.form.get('description', '')
     employee_id = request.form.get('employee_id', None)  # For employee profile pictures
@@ -200,6 +317,36 @@ def upload_image(salon_id):
 
 @salon_gallery_bp.route('/salon/gallery/<int:gallery_id>/update', methods=['PUT'])
 def update_image(gallery_id):
+    """
+Update gallery image
+---
+tags:
+  - Salon Gallery
+consumes:
+  - multipart/form-data
+parameters:
+  - name: gallery_id
+    in: path
+    required: true
+    type: integer
+  - name: image
+    in: formData
+    type: file
+    description: New image file
+  - name: description
+    in: formData
+    type: string
+    description: New image description
+responses:
+  200:
+    description: Image updated successfully
+  400:
+    description: No fields to update provided
+  404:
+    description: Gallery image not found
+  500:
+    description: Failed to update image
+"""
     image = request.files.get('image')
     description = request.form.get('description')
 
@@ -245,6 +392,24 @@ def update_image(gallery_id):
 
 @salon_gallery_bp.route('/salon/gallery/<int:gallery_id>/delete', methods=['DELETE'])
 def delete_image(gallery_id):
+    """
+Delete gallery image
+---
+tags:
+  - Salon Gallery
+parameters:
+  - name: gallery_id
+    in: path
+    required: true
+    type: integer
+responses:
+  200:
+    description: Image deleted successfully
+  404:
+    description: Image not found
+  500:
+    description: Failed to delete image
+"""
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
