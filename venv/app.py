@@ -13,7 +13,7 @@ app.secret_key = 'G76D-U89V-576V-7BT6'
 app.config.update(
     MYSQL_HOST='localhost',
     MYSQL_USER='root',
-    MYSQL_PASSWORD='1111',
+    MYSQL_PASSWORD='5283',
     MYSQL_DB='salon'
 )
 
