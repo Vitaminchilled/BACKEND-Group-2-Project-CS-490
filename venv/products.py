@@ -1,12 +1,34 @@
 from flask import Blueprint, request, jsonify, current_app
 from MySQLdb.cursors import DictCursor
 from datetime import datetime
+from flasgger import swag_from
 
 products_bp = Blueprint('products_bp', __name__)
 
 # View all products for a salon
 @products_bp.route('/products/view', methods=['GET'])
 def get_products():
+    """
+    View products
+    ---
+    tags:
+      - Products
+    consumes:
+      - application/json
+    parameters:
+      - name: salon_id
+        in: query
+        type: integer
+        required: true
+        description: The salon ID to fetch products for
+    responses:
+      200:
+        description: Products shown
+      400:
+        description: Missing salon_id
+      500:
+        description: error
+    """
     salon_id = request.args.get('salon_id')
 
     if not salon_id:
@@ -34,6 +56,46 @@ def get_products():
 # Add a new product
 @products_bp.route('/products', methods=['POST'])
 def add_product():
+    """
+    Add products
+    ---
+    tags:
+      - Products
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+          - salon_id
+          - name
+          - price
+          properties:
+            salon_id:
+              type: integer
+            name:
+              type: string
+            description:
+              type: string
+            price:
+              type: number
+              format: float
+            stock_quantity:
+              type: integer
+            image_url:
+              type: string
+              format: url
+    responses:
+      201:
+        description: Product added successfully
+      400:
+        description: Missing required fields (salon_id, name, price)
+      500:
+        description: error
+    """
     data = request.get_json()
 
     salon_id = data.get('salon_id')
@@ -68,6 +130,54 @@ def add_product():
 # Edit/update an existing product
 @products_bp.route('/products/<int:product_id>', methods=['PUT'])
 def update_product(product_id):
+    """
+Edit/update product
+---
+tags:
+  - Products
+consumes:
+  - application/json
+parameters:
+  - name: product_id
+    in: path
+    type: integer
+    required: true
+    description: ID of the product to update
+  - in: body
+    name: body
+    required: true
+    schema:
+      type: object
+      properties:
+        salon_id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+          format: float
+        stock_quantity:
+          type: integer
+        image_url:
+          type: string
+          format: uri
+responses:
+  200:
+    description: Product updated successfully
+  400:
+    description: Missing salon_id
+  401:
+    description: No update fields provided
+  403:
+    description: Product does not belong to this salon
+  404:
+    description: Product not found
+  500:
+    description: Internal server error
+    """
+
     data = request.get_json()
     salon_id = data.get('salon_id')
 
@@ -83,7 +193,7 @@ def update_product(product_id):
             values.append(data[key])
 
     if not fields:
-        return jsonify({'error': 'No update fields provided'}), 400
+        return jsonify({'error': 'No update fields provided'}), 401
 
     mysql = current_app.config['MYSQL']
     cursor = mysql.connection.cursor(DictCursor)
@@ -115,6 +225,34 @@ def update_product(product_id):
 # Remove a product
 @products_bp.route('/products/delete/<int:product_id>', methods=['DELETE'])
 def delete_product(product_id):
+    """
+    Delete a product
+    ---
+    tags:
+      - Products
+    parameters:
+      - name: product_id
+        in: path
+        type: integer
+        required: true
+        description: ID of the product to delete
+      - name: salon_id
+        in: query
+        type: integer
+        required: true
+        description: The salon ID making the delete request
+    responses:
+      200:
+        description: Product deleted successfully
+      400:
+        description: Missing salon_id
+      403:
+        description: Cannot delete another salon's product
+      404:
+        description: Product not found
+      500:
+        description: Internal server error
+    """
     salon_id = request.args.get('salon_id')
 
     if not salon_id:
