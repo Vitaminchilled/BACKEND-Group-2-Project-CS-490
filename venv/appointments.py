@@ -15,8 +15,45 @@ def timedelta_to_time(td):
 
 # here is my appointments booking, when calling this function (appointments/book), it'll need the customer, salon and service id
 # as well as the appointment dates and notes, this can prolly be changed as we move forward thou.
+# add extra function to add image to appointment
 @appointments_bp.route('/appointments/book', methods=['POST'])
 def book_appointment():
+    """
+    Book a new appointment
+    ---
+    tags:
+      - Appointments
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+          salon_id:
+            type: integer
+          employee_id:
+            type: integer
+          customer_id:
+            type: integer
+          service_id:
+            type: integer
+          appointment_date:
+            type: string
+          start_time:
+            type: string
+          notes:
+            type: string
+    responses:
+      201:
+        description: Appointment booked
+      400:
+        description: Missing or invalid fields
+      500:
+        description: Internal server error
+    """
     data = request.get_json()
 
     salon_id = data.get('salon_id')
@@ -154,6 +191,28 @@ def debug_test():
 # get data about appointments, maybe things like viewing appointment history and etc
 @appointments_bp.route('/appointments/view', methods=['GET'])
 def view_appointments():
+    """
+    View appointments for a customer or salon
+    ---
+    tags:
+      - Appointments
+    parameters:
+      - name: role
+        in: query
+        required: true
+        type: string
+        description: customer or salon
+      - name: id
+        in: query
+        required: true
+        type: integer
+        description: user or salon ID
+    responses:
+      200:
+        description: Appointments returned
+      400:
+        description: Missing required parameters
+    """
     user_type = request.args.get('role')  # 'customer' or 'salon'
     user_id = request.args.get('id')
 
@@ -203,6 +262,20 @@ def view_appointments():
 # to view how many appointments are on a specific day (calendar view)
 @appointments_bp.route('/salon/<int:salon_id>/appointments/calendar', methods=['GET'])
 def total_appointments(salon_id):
+    """
+    Get total appointments per day for a salon
+    ---
+    tags:
+      - Appointments
+    parameters:
+      - name: salon_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: List of dates and counts
+    """
     mysql = current_app.config['MYSQL']
     cursor = mysql.connection.cursor()
 
@@ -226,6 +299,34 @@ def total_appointments(salon_id):
 # Rescheduling function! this function is going to need the new appointment date.
 @appointments_bp.route('/appointments/update', methods=['PUT'])
 def update_appointment():
+    """
+    Update an appointment date/time
+    ---
+    tags:
+      - Appointments
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            appointment_id:
+              type: integer
+            new_date:
+              type: string
+            new_start_time:
+              type: string
+            new_note:
+              type: string
+    responses:
+      200:
+        description: Appointment updated
+      404:
+        description: Appointment not found
+    """
     data = request.get_json()
     appointment_id = data.get('appointment_id')
     new_date = data.get('new_date')        # needs this format: YYYY-MM-DD
@@ -350,6 +451,33 @@ def update_appointment():
 # it from the database it just changes status to cancelled
 @appointments_bp.route('/appointments/cancel', methods=['PUT'])
 def cancel_appointment():
+    """
+    Cancel an appointment (does not delete it)
+    ---
+    tags:
+      - Appointments
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            appointment_id:
+              type: integer
+              description: ID of the appointment to cancel
+    responses:
+      200:
+        description: Appointment cancelled successfully
+      400:
+        description: Missing appointment ID
+      404:
+        description: Appointment not found
+      500:
+        description: Internal server error
+    """
     data = request.get_json()
     appointment_id = data.get('appointment_id')
 
@@ -383,7 +511,30 @@ def cancel_appointment():
 # Get specific appointments history from salon or customer
 @appointments_bp.route('/appointments/<string:role>/<int:entity_id>', methods=['GET'])
 def get_appointments(role, entity_id):
-
+    """
+    Get appointment history for a salon or customer
+    ---
+    tags:
+      - Appointments
+    parameters:
+      - name: role
+        in: path
+        type: string
+        required: true
+        description: customer or salon
+      - name: entity_id
+        in: path
+        type: integer
+        required: true
+        description: Customer ID or Salon ID
+    responses:
+      200:
+        description: Appointment history returned
+      400:
+        description: Invalid role entered
+      500:
+        description: Internal server error
+    """
     mysql = current_app.config['MYSQL']
     cursor = mysql.connection.cursor(DictCursor)
 
@@ -421,6 +572,32 @@ def get_appointments(role, entity_id):
 # getter for populating appointment schedule/time tab
 @appointments_bp.route('/employees/<int:employee_id>/weekly-availability', methods=['GET'])
 def employee_weekly_availability(employee_id):
+    """
+    Get weekly availability for an employee
+    ---
+    tags:
+      - Appointments
+    parameters:
+      - name: employee_id
+        in: path
+        required: true
+        type: integer
+        description: Employee ID
+      - name: date
+        in: query
+        required: false
+        type: string
+        description: Optional date (YYYY-MM-DD) to highlight booked slots
+    responses:
+      200:
+        description: Weekly availability, working hours, and time slot statuses
+      400:
+        description: Invalid date format
+      404:
+        description: Employee not found
+      500:
+        description: Internal server error
+    """
     req_date = request.args.get('date')
     increment_minutes = 15
 
