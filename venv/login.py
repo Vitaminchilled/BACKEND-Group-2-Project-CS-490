@@ -1,11 +1,38 @@
 from flask import Blueprint, request, jsonify, session
 from werkzeug.security import check_password_hash
 from flask import current_app
+from flasgger import swag_from
 
 login_bp = Blueprint('login', __name__)
 
 @login_bp.route('/login', methods=['POST'])
 def login():
+    """
+    User Login
+    ---
+    tags:
+      - Authentication
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            username:
+              type: string
+            password:
+              type: string
+    responses:
+      200:
+        description: Login successful
+      400:
+        description: Missing required fields
+      401:
+        description: Invalid username or password
+    """
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
@@ -34,6 +61,15 @@ def login():
 
 @login_bp.route('/auth/status', methods=['GET'])
 def auth_status():
+    """
+    Authentication Status
+    ---
+    tags:
+      - Authentication
+    responses:
+      200:
+        description: Returns whether the user is authenticated
+    """
     if 'user_id' in session:
         return jsonify({'authenticated': True, 'username': session.get('username')}), 200
     else:
@@ -41,5 +77,14 @@ def auth_status():
     
 @login_bp.route('/logout', methods=['POST'])
 def logout():
+    """
+    Logout
+    ---
+    tags:
+      - Authentication
+    responses:
+      200:
+        description: Logout successful
+    """
     session.clear()
     return jsonify({'message': 'Logout successful'}), 200

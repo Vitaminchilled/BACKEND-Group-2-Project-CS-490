@@ -6,6 +6,23 @@ loyalty_bp = Blueprint('loyalty', __name__)
 #customers/salons can view active loyalty
 @loyalty_bp.route('/loyalty/<int:salon_id>', methods=['GET'])
 def get_active_loyalty(salon_id):
+    """
+    Get active loyalty programs for a salon
+    ---
+    tags:
+      - Loyalty
+    parameters:
+      - name: salon_id
+        in: path
+        type: integer
+        required: true
+        description: Salon ID
+    responses:
+      200:
+        description: List of active loyalty programs
+      500:
+        description: Failed to fetch loyalty programs
+    """
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -31,6 +48,22 @@ def get_active_loyalty(salon_id):
 #salons can view active and inactive loyalty programs
 @loyalty_bp.route('/loyalty/viewall/<int:salon_id>', methods=['GET'])
 def get_loyalty(salon_id):
+    """
+    Get all loyalty programs for a salon (active and inactive)
+    ---
+    tags:
+      - Loyalty
+    parameters:
+      - name: salon_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Loyalty programs returned successfully
+      500:
+        description: Failed to fetch loyalty programs
+    """
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -55,6 +88,49 @@ def get_loyalty(salon_id):
 #salons can add loyalty
 @loyalty_bp.route('/loyalty/<int:salon_id>', methods=['POST'])
 def add_loyalty(salon_id):
+    """
+    Add a new loyalty program
+    ---
+    tags:
+      - Loyalty
+    consumes:
+      - application/json
+    parameters:
+      - name: salon_id
+        in: path
+        type: integer
+        required: true
+      - in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+            tag_names:
+              type: array
+              items:
+                type: string
+            points_required:
+              type: integer
+            discount_value:
+              type: number
+            is_percentage:
+              type: boolean
+            start_date:
+              type: string
+              description: YYYY-MM-DD
+            end_date:
+              type: string
+              description: YYYY-MM-DD
+    responses:
+      201:
+        description: Loyalty program added successfully
+      400:
+        description: Missing required fields or tag list invalid
+      500:
+        description: Failed to add loyalty program
+    """
     data = request.get_json()
     name = data.get('name')
     tag_names = data.get('tag_names')  
@@ -96,6 +172,47 @@ def add_loyalty(salon_id):
 #salons can edit loyalty
 @loyalty_bp.route('/loyalty/<int:loyalty_program_id>', methods=['PUT'])
 def edit_loyalty(loyalty_program_id):
+    """
+    Edit an existing loyalty program
+    ---
+    tags:
+      - Loyalty
+    consumes:
+      - application/json
+    parameters:
+      - name: loyalty_program_id
+        in: path
+        required: true
+        type: integer
+      - in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+            tag_names:
+              type: array
+              items:
+                type: string
+            points_required:
+              type: integer
+            discount_value:
+              type: number
+            is_percentage:
+              type: boolean
+            start_date:
+              type: string
+            end_date:
+              type: string
+    responses:
+      200:
+        description: Loyalty program updated successfully
+      400:
+        description: Missing required fields or invalid tag list
+      500:
+        description: Failed to update loyalty program
+    """
     data = request.get_json()
     name = data.get('name')
     tag_names = data.get('tag_names')
@@ -138,6 +255,22 @@ def edit_loyalty(loyalty_program_id):
 #salons can disable loyalty
 @loyalty_bp.route('/loyalty/<int:loyalty_program_id>/disable', methods=['PATCH'])
 def disable_loyalty(loyalty_program_id):
+    """
+    Disable a loyalty program immediately
+    ---
+    tags:
+      - Loyalty
+    parameters:
+      - name: loyalty_program_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: Loyalty program disabled
+      500:
+        description: Failed to disable loyalty program
+    """
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -155,6 +288,22 @@ def disable_loyalty(loyalty_program_id):
 #salons can enable loyalty
 @loyalty_bp.route('/loyalty/viewall/<int:loyalty_program_id>/enable', methods=['PATCH'])
 def enable_loyalty(loyalty_program_id):
+    """
+    Re-enable a previously disabled loyalty program
+    ---
+    tags:
+      - Loyalty
+    parameters:
+      - name: loyalty_program_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: Loyalty program enabled
+      500:
+        description: Failed to enable loyalty program
+    """
     try: 
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -172,6 +321,28 @@ def enable_loyalty(loyalty_program_id):
 #display customer loyalty points
 @loyalty_bp.route('/loyalty/<int:salon_id>/points/<int:customer_id>', methods=['GET'])
 def get_customer_points(salon_id, customer_id):
+    """
+    Get loyalty points for a specific customer at a salon
+    ---
+    tags:
+      - Loyalty
+    parameters:
+      - name: salon_id
+        in: path
+        type: integer
+        required: true
+      - name: customer_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Loyalty points returned
+      404:
+        description: No points found for this customer
+      500:
+        description: Error retrieving customer points
+    """
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -199,6 +370,37 @@ def get_customer_points(salon_id, customer_id):
 #customer collects loyalty voucher
 @loyalty_bp.route('/loyalty/<int:salon_id>/claim', methods=['POST'])
 def claim_voucher(salon_id):
+    """
+    Redeem points for a loyalty voucher
+    ---
+    tags:
+      - Loyalty
+    consumes:
+      - application/json
+    parameters:
+      - name: salon_id
+        in: path
+        required: true
+        type: integer
+      - in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            customer_id:
+              type: integer
+            loyalty_program_id:
+              type: integer
+    responses:
+      201:
+        description: Voucher claimed successfully
+      400:
+        description: Missing fields or insufficient points
+      404:
+        description: Customer has no points record
+      500:
+        description: Voucher claim failed
+    """
     try:
         data = request.get_json()
         customer_id = data.get('customer_id')
@@ -256,6 +458,22 @@ def claim_voucher(salon_id):
 #customer tracks loyalty vouchers
 @loyalty_bp.route('/loyalty/<int:customer_id>/vouchers', methods=['GET'])
 def get_vouchers(customer_id):
+    """
+    Get all unredeemed loyalty vouchers for a customer
+    ---
+    tags:
+      - Loyalty
+    parameters:
+      - name: customer_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: List of vouchers returned
+      500:
+        description: Failed to retrieve vouchers
+    """
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()

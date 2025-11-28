@@ -1,6 +1,6 @@
 import random
 import string
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, session
 from datetime import datetime
 
 payment_bp = Blueprint('payment', __name__)
@@ -140,6 +140,26 @@ def award_loyalty_points(mysql, customer_id, salon_id, total_amount, default_poi
 
 @payment_bp.route('/wallets/<int:customer_id>', methods=['GET'])
 def list_wallets(customer_id):
+    """
+    Get saved payment wallets for a customer  
+    ---
+    tags:
+      - Payments
+    parameters:
+      - name: customer_id
+        in: path
+        required: true
+        description: ID of the customer
+        schema:
+          type: integer
+        responses:
+          200:
+            description: List of saved wallets returned successfully
+          401:
+            description: Unauthorized access
+          500:
+            description: Internal server error
+    """
     user_id = session.get('user_id')
     if user_id != customer_id:
         return jsonify({'error': 'Unauthorized'}), 401
@@ -237,6 +257,56 @@ def payment_process(card_type, total_amount):
 
 @payment_bp.route('/appointments/payment', methods=['POST'])
 def pay_appointment():
+    """
+    Process payment for an appointment  
+    ---
+    tags:
+      - Payments
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              appointment_id:
+                type: integer
+              customer_id:
+                type: integer
+              service_id:
+                type: integer
+              wallet_id:
+                type: integer
+              card_number:
+                type: string
+              exp_month:
+                type: integer
+              exp_year:
+                type: integer
+              cvv:
+                type: string
+              save_card:
+                type: boolean
+              promo_code:
+                type: string
+              loyalty_voucher_id:
+                type: integer
+            required:
+              - appointment_id
+              - customer_id
+              - service_id
+    responses:
+      201:
+        description: Payment successful
+      400:
+        description: Invalid request or payment error
+      401:
+        description: Unauthorized access
+      404:
+        description: Appointment not found
+      500:
+        description: Internal server error
+    """
     user_id = session.get('user_id')
     if user_id != customer_id:
         return jsonify({'error': 'Unauthorized'}), 401
@@ -363,6 +433,53 @@ def pay_appointment():
     
 @payment_bp.route('/cart/payment', methods=['POST'])
 def pay_cart():
+    """
+    Process payment for a customer's cart  
+    ---
+    tags:
+      - Payments
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              customer_id:
+                type: integer
+              salon_id:
+                type: integer
+              wallet_id:
+                type: integer
+              card_number:
+                type: string
+              exp_month:
+                type: integer
+              exp_year:
+                type: integer
+              cvv:
+                type: string
+              save_card:
+                type: boolean
+              promo_code:
+                type: string
+              loyalty_voucher_id:
+                type: integer
+            required:
+              - customer_id
+              - salon_id
+    responses:
+      201:
+        description: Cart payment completed
+      400:
+        description: Payment or validation error
+      401:
+        description: Unauthorized access
+      404:
+        description: Cart not found
+      500:
+        description: Internal server error
+    """
     user_id = session.get('user_id')
     if user_id != customer_id:
         return jsonify({'error': 'Unauthorized'}), 401
@@ -509,6 +626,28 @@ def pay_cart():
     
 @payment_bp.route('/payments/history/<int:customer_id>', methods=['GET'])
 def payment_history(customer_id):
+    """
+    Fetch full payment history for a customer  
+    ---
+    tags:
+      - Payments
+    parameters:
+      - name: customer_id
+        in: path
+        required: true
+        description: Customer ID
+        schema:
+          type: integer
+    responses:
+      200:
+        description: Payment history returned
+      401:
+        description: Unauthorized access
+      404:
+        description: No payments found
+      500:
+        description: Internal server error
+    """
     user_id = session.get('user_id')
     if user_id != customer_id:
         return jsonify({'error': 'Unauthorized'}), 401
@@ -546,6 +685,28 @@ def payment_history(customer_id):
     
 @payment_bp.route('/payments/refund/<int:invoice_id>', methods=['POST'])
 def refund_payment(invoice_id):
+    """
+    Refund a previously paid invoice  
+    ---
+    tags:
+      - Payments
+    parameters:
+      - name: invoice_id
+        in: path
+        required: true
+        description: Invoice ID to refund
+        schema:
+          type: integer
+    responses:
+      200:
+        description: Refund successful
+      400:
+        description: Refund not allowed or already processed
+      404:
+        description: Invoice not found
+      500:
+        description: Refund failed
+    """
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()

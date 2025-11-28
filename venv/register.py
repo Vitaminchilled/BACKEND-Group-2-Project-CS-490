@@ -8,6 +8,36 @@ register_bp = Blueprint('register', __name__)
 #registering users (default page)
 @register_bp.route('/register/page', methods=['POST'])
 def register_page():
+    """
+Initial registration page - validate username and password
+---
+tags:
+  - Registration
+consumes:
+  - application/json
+parameters:
+  - in: body
+    name: body
+    required: true
+    schema:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        password_confirm:
+          type: string
+      required:
+        - username
+        - password
+        - password_confirm
+responses:
+  200:
+    description: Username and password validated, proceed to next step
+  400:
+    description: Missing fields, passwords don't match, or username exists
+"""
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
@@ -38,6 +68,48 @@ def register_page():
 #registering customers (next page)
 @register_bp.route('/register/customer', methods=['POST'])
 def register_customer():
+    """
+Complete customer registration
+---
+tags:
+  - Registration
+consumes:
+  - application/json
+parameters:
+  - in: body
+    name: body
+    required: true
+    schema:
+      type: object
+      properties:
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone_number:
+          type: string
+        gender:
+          type: string
+        birth_year:
+          type: integer
+      required:
+        - first_name
+        - last_name
+        - email
+        - phone_number
+        - gender
+        - birth_year
+responses:
+  201:
+    description: Customer registered successfully
+  400:
+    description: Missing fields, session expired, or email/phone already exists
+  500:
+    description: Registration failed
+"""
     username = session.get('register_username')
     password = session.get('register_password') #already hashed 
     if not username or not password:
@@ -92,6 +164,88 @@ def register_customer():
 #register salons (alternative next page)
 @register_bp.route('/register/salon', methods=['POST'])
 def register_salon():
+    """
+Complete salon owner registration
+---
+tags:
+  - Registration
+consumes:
+  - application/json
+parameters:
+  - in: body
+    name: body
+    required: true
+    schema:
+      type: object
+      properties:
+        first_name:
+          type: string
+        last_name:
+          type: string
+        personal_email:
+          type: string
+          format: email
+        personal_email_confirm:
+          type: string
+          format: email
+        birth_year:
+          type: integer
+        phone_number:
+          type: string
+        gender:
+          type: string
+        salon_name:
+          type: string
+        description:
+          type: string
+        salon_email:
+          type: string
+          format: email
+        salon_email_confirm:
+          type: string
+          format: email
+        salon_phone_number:
+          type: string
+        salon_address:
+          type: string
+        salon_city:
+          type: string
+        salon_state:
+          type: string
+        salon_postal_code:
+          type: string
+        salon_country:
+          type: string
+        master_tag_ids:
+          type: array
+          items:
+            type: integer
+      required:
+        - first_name
+        - last_name
+        - personal_email
+        - personal_email_confirm
+        - birth_year
+        - phone_number
+        - gender
+        - salon_name
+        - salon_email
+        - salon_email_confirm
+        - salon_phone_number
+        - salon_address
+        - salon_city
+        - salon_state
+        - salon_postal_code
+        - salon_country
+        - master_tag_ids
+responses:
+  201:
+    description: Salon and owner registered successfully
+  400:
+    description: Missing fields, emails don't match, or business details already exist
+  500:
+    description: Registration failed
+    """
     username = session.get('register_username')
     password = session.get('register_password') #already hashed
     if not username or not password:
