@@ -226,8 +226,8 @@ def update_cart_quantity():
         cart_item_id = data.get('cart_item_id')
         quantity = data.get('quantity')
 
-        if not all([cart_item_id, quantity]):
-            return jsonify({'error': 'cart_item_id and quantity required'}), 400
+        if cart_item_id is None or quantity is None:
+          return jsonify({'error': 'cart_item_id and quantity required'}), 400
         
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()

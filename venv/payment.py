@@ -307,13 +307,13 @@ def pay_appointment():
       500:
         description: Internal server error
     """
+    data = request.json
+    customer_id = data.get('customer_id')
     user_id = session.get('user_id')
     if user_id != customer_id:
         return jsonify({'error': 'Unauthorized'}), 401
     
-    data = request.json
     appointment_id = data.get('appointment_id')
-    customer_id = data.get('customer_id')
     service_id = data.get('service_id')
     wallet_id = data.get('wallet_id') #optional
     card_number = data.get('card_number')
@@ -480,12 +480,12 @@ def pay_cart():
       500:
         description: Internal server error
     """
+    data = request.json
+    customer_id = data.get('customer_id')
     user_id = session.get('user_id')
     if user_id != customer_id:
         return jsonify({'error': 'Unauthorized'}), 401
     
-    data = request.json
-    customer_id = data.get('customer_id')
     salon_id = data.get('salon_id')
     wallet_id = data.get('wallet_id') #optional
     card_number = data.get('card_number')  
