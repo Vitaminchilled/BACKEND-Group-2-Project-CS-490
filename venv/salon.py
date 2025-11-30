@@ -187,7 +187,12 @@ def get_salon_info(salon_id):
                 s.owner_id, 
                 (
                     select COALESCE(
-                        JSON_ARRAYAGG(t.name), JSON_ARRAY()
+                        JSON_ARRAYAGG(
+                            JSON_OBJECT(
+                                'tag_id', t.tag_id,
+                                'name', t.name
+                            )
+                        ), JSON_ARRAY()
                     )
                     from entity_master_tags e
                     left join master_tags m 
@@ -205,7 +210,21 @@ def get_salon_info(salon_id):
                 ad.state, 
                 ad.postal_code, 
                 ad.country,
-                sa.average_rating
+                sa.average_rating,
+                (
+                    select COALESCE(
+                        JSON_ARRAYAGG(
+                            JSON_OBJECT(
+                                'master_tag_id', m.master_tag_id,
+                                'name', m.name
+                            )
+                        ), JSON_ARRAY()
+                    )
+                    from entity_master_tags e
+                    left join master_tags m 
+                    on m.master_tag_id = e.master_tag_id
+                    where e.entity_id = s.salon_id and e.entity_type = 'salon'
+                ) as master_tags
             from salons s
             left join addresses ad
             on ad.salon_id = s.salon_id
@@ -224,6 +243,12 @@ def get_salon_info(salon_id):
         except Exception:
             tag_list = []
 
+        master_tag_list = []
+        try:
+            master_tag_list = json.loads(salon[13]) if salon[13] else []
+        except Exception:
+            master_tag_list = []
+
         cursor.close()
 
         return jsonify({
@@ -241,7 +266,8 @@ def get_salon_info(salon_id):
                 "country": salon[11],
                 "average_rating": salon[12]
             },
-            'tags' : tag_list, #tag list ex.["Salon Hair Cut","Blowout","Hair Wash","Hair Dye","Styling"]
+            'tags' : tag_list,
+            'master_tags' : master_tag_list
         }), 200
     except Exception as e:
         return jsonify({'error': 'Failed to fetch salon', 'details': str(e)}), 500

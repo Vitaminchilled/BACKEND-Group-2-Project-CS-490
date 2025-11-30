@@ -1,10 +1,9 @@
 from flask import Blueprint, request, jsonify, session
 from flask import current_app
 from datetime import datetime
+import json
 
 employees_bp = Blueprint('employees', __name__)
-
-#implement salon gallery later
 
 @employees_bp.route('/salon/<int:salon_id>/employees', methods=['GET'])
 def get_employees(salon_id):
@@ -12,46 +11,78 @@ def get_employees(salon_id):
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select e.employee_id, e.first_name, e.last_name, e.description
-            from employees e
-            where e.salon_id = %s
-            order by e.last_name
+            WITH latest_salary AS (
+                SELECT 
+                    es.*,
+                    ROW_NUMBER() OVER (PARTITION BY es.employee_id ORDER BY es.effective_date DESC, es.salary_id DESC) AS rn
+                FROM employee_salaries es
+            )
+            SELECT 
+                e.employee_id, 
+                e.first_name, 
+                e.last_name, 
+                e.description,
+                COALESCE(
+                    (
+                        SELECT JSON_ARRAYAGG(m.name)
+                        FROM entity_master_tags em
+                        LEFT JOIN master_tags m ON m.master_tag_id = em.master_tag_id
+                        WHERE em.entity_id = e.employee_id AND em.entity_type = 'employees'
+                    ), 
+                    JSON_ARRAY()
+                ) AS tag_names,
+                ls.salary_id,
+                ls.salary_value,
+                ls.effective_date
+            FROM employees e
+            LEFT JOIN latest_salary ls
+                ON ls.employee_id = e.employee_id AND ls.rn = 1
+            WHERE e.salon_id = %s
+            ORDER BY e.last_name;
         """
         cursor.execute(query, (salon_id,))
         employees = cursor.fetchall()
-        cursor.close()
-        return jsonify({
-            'employees' : [{
+
+        result = []
+        for employee in employees:
+            try:
+                tags = json.loads(employee[4]) if employee[4] else []
+            except Exception:
+                tags = []
+
+            effective_date = employee[7]
+            if effective_date is not None:
+                effective_date = str(effective_date)
+
+            result.append({
                 "employee_id": employee[0],
-                "employee_first_name": employee[1],
-                "employee_last_name": employee[2],
-                "description": employee[3]
-            } for employee in employees]
-        })
+                "first_name": employee[1],
+                "last_name": employee[2],
+                "description": employee[3], 
+                "tags": tags,
+                "salary_id" : employee[5],
+                "salary_value" : employee[6],
+                "effective_date" : effective_date
+            })
+
+        cursor.close()
+        return jsonify({'employees': result}), 200
     except Exception as e:
         return jsonify({"error": "An error occurred while fetching employees."}), 500
 
 @employees_bp.route('/salon/<int:salon_id>/employees', methods=['POST'])
 def add_employee(salon_id):
-    first_name = request.json.get('first_name')
-    last_name = request.json.get('last_name')
-    description = request.json.get('description')
-    tag_name = request.json.get('tag_name')
-    #photo = request.json.get('photo')
+    data = request.get_json()
+    first_name = data.get('first_name')
+    last_name = data.get('last_name')
+    description = data.get('description')
+    tags = data.get('tags', [])
 
-    if not all([first_name, last_name, tag_name]):
-        return jsonify({"error": "Missing required fields"}), 400
+    if not all([first_name, last_name]) or not tags:
+        return jsonify({"error": "Missing required fields. Every employee must have at least one tag."}), 400
     
     mysql = current_app.config['MYSQL']
     cursor = mysql.connection.cursor()
-    query = """
-        select master_tag_id
-        from master_tags
-        where name = %s
-    """
-    cursor.execute(query, (tag_name,))
-    tag_info = cursor.fetchone()
-    master_tag_id = tag_info[0]
 
     try:
         query = """
@@ -60,47 +91,41 @@ def add_employee(salon_id):
         """
         cursor.execute(query, (salon_id, first_name, last_name, description))
         employee_id = cursor.lastrowid
-        
-        query = """
-            insert into entity_master_tags (entity_type, entity_id, master_tag_id)
-            values (%s, %s, %s)
-        """
-        cursor.execute(query, ('employees', employee_id, master_tag_id))
-        mysql.connection.commit()
 
-        #if photo:
-            #query = """
-                #insert into salon_gallery (salon_id, employee_id, image_url)
-                #values (%s, %s, %s)
-            #"""
-           # cursor.execute(query, (salon_id, employee_id, photo))
-           # mysql.connection.commit()
+        for tag_name in tags:
+            cursor.execute("select master_tag_id from master_tags where name = %s", (tag_name,))
+            tag = cursor.fetchone()
+            if not tag:
+                cursor.close()
+                return jsonify({"error": f"Tag '{tag_name}' does not exist"}), 400
+            #insert into entity tags
+            master_tag_id = tag[0]
+            query = """
+                insert into entity_master_tags (entity_type, entity_id, master_tag_id)
+                values(%s, %s, %s)
+            """
+            cursor.execute(query, ('employees', employee_id, master_tag_id))
+    
+        mysql.connection.commit()
         cursor.close()
+
         return jsonify({"message": "Employee added successfully", "employee_id": employee_id}), 201
     except Exception as e:
         return jsonify({"error": "An error occurred while adding the employee."}), 500
     
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>', methods=['PUT'])
 def edit_employee(salon_id, employee_id):
-    first_name = request.json.get('first_name')
-    last_name = request.json.get('last_name')
-    description = request.json.get('description')
-    tag_name = request.json.get('tag_name')
-    #photo = request.json.get('photo')  
+    data = request.get_json()
+    first_name = data['first_name']
+    last_name = data['last_name']
+    description = data['description']
+    tags = data['tags']
 
-    if not all([first_name, last_name, tag_name]):
+    if not all([first_name, last_name, tags]):
         return jsonify({"error": "Missing required fields"}), 400
     
     mysql = current_app.config['MYSQL']
     cursor = mysql.connection.cursor()
-    query = """
-        select master_tag_id
-        from master_tags
-        where name = %s
-    """
-    cursor.execute(query, (tag_name,))
-    tag_info = cursor.fetchone()
-    master_tag_id = tag_info[0]
 
     try:
         query = """
@@ -109,25 +134,33 @@ def edit_employee(salon_id, employee_id):
             where employee_id = %s and salon_id = %s
         """
         cursor.execute(query, (first_name, last_name, description, employee_id, salon_id))
+        
+        #delete old tag
         query = """
-            update entity_master_tags
-            set master_tag_id = %s
-            where entity_id = %s and entity_type = 'employees'
+            delete from entity_master_tags
+            where entity_type = 'employees' and entity_id = %s
         """
-        cursor.execute(query, (master_tag_id, employee_id))
-        mysql.connection.commit()
+        cursor.execute(query, (employee_id,))
+        #insert new tags
+        for tag_name in tags:
+            cursor.execute("SELECT master_tag_id FROM master_tags WHERE name=%s", (tag_name,))
+            tag = cursor.fetchone()
+            if not tag:
+                return jsonify({"error": f"Tag '{tag_name}' does not exist"}), 400
+            tag_id = tag[0]
+            query = """
+                insert into entity_master_tags (entity_type, entity_id, master_tag_id)
+                values(%s, %s, %s)
+            """
+            cursor.execute(query, ('employees', employee_id, tag_id))
 
-        #if photo:
-            #query = """
-               # insert into salon_gallery (salon_id, employee_id, image_url)
-               # values (%s, %s, %s)
-               # on duplicate key update image_url = %s
-            #"""
-            #cursor.execute(query, (salon_id, employee_id, photo, photo))
-            #mysql.connection.commit()
+        
+        mysql.connection.commit()
         cursor.close()
         return jsonify({"message": "Employee updated successfully"}), 200
     except Exception as e:
+        current_app.logger.error(f"Error updating employee {employee_id}: {e}")
+        cursor.close()
         return jsonify({"error": "An error occurred while updating the employee."}), 500
 
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>', methods=['DELETE'])
@@ -153,6 +186,12 @@ def delete_employee(salon_id, employee_id):
             where entity_id = %s
         """
         cursor.execute(query, (employee_id,))
+        #delete salaries due to foreign key constraint
+        query = """
+            delete from employee_salaries
+            where employee_id = %s
+        """
+        cursor.execute(query, (employee_id,))
         #delete employee last 
         query = """
             delete from employees
@@ -163,6 +202,8 @@ def delete_employee(salon_id, employee_id):
         cursor.close()
         return jsonify({"message": "Employee deleted successfully"}), 200
     except Exception as e:
+        current_app.logger.error(f"Error updating employee {employee_id}: {e}")
+        cursor.close()
         return jsonify({"error": "An error occurred while deleting the employee."}), 500
     
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/timeslots', methods=['POST'])
