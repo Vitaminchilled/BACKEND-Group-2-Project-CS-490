@@ -220,7 +220,6 @@ responses:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         
-        #user must have completed an appointment
         query = """
             select salon_id, customer_id, status
             from appointments
@@ -233,8 +232,7 @@ responses:
             return jsonify({'error': 'You can only review your own appointments'}), 403
         if status != 'completed':
             return jsonify({'error': 'You can only review completed appointments'}), 400
-        
-        #user cannot review the same appointment twice
+
         query = """
             select review_id
             from reviews
@@ -255,6 +253,7 @@ responses:
         return jsonify({'message': 'Review posted successfully'}), 201
     except Exception as e:
         return jsonify({'error': 'Failed to post review'}), 500
+
 
 @reviews_bp.route('/reviews/<int:review_id>/reply', methods=['POST'])
 def post_reply(review_id):
@@ -373,7 +372,7 @@ responses:
     except Exception as e:
         return jsonify({'error': 'Failed to delete review'}), 500
 
-@reviews_bp.route('/reviews/<int:reply_id>', methods=['DELETE'])
+@reviews_bp.route('/reviews/reply/<int:reply_id>', methods=['DELETE'])
 def delete_reply(reply_id):
     """
 Delete a reply (admin or reply owner only)

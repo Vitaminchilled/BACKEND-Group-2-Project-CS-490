@@ -274,9 +274,9 @@ responses:
                 where product_id = %s and salon_id = %s
             """
             cursor.execute(query, (product_id, salon_id))
-        if not cursor.fetchone():
-            cursor.close()
-            return jsonify({'error': f'Product {product_id} does not belong to salon {salon_id}'}), 400
+            if not cursor.fetchone():
+                cursor.close()
+                return jsonify({'error': f'Product {product_id} does not belong to salon {salon_id}'}), 400
             
         #remove the previous profile photo
         if is_primary and not employee_id and not product_id:
