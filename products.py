@@ -60,6 +60,7 @@ def add_product():
 
     except Exception as e:
         mysql.connection.rollback()
+        current_app.logger.error(f"Error adding product: {e}")
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
