@@ -13,7 +13,7 @@ app.secret_key = 'G76D-U89V-576V-7BT6'
 app.config.update(
     MYSQL_HOST='localhost',
     MYSQL_USER='root',
-    MYSQL_PASSWORD='5283',
+    MYSQL_PASSWORD='B3njamin178',
     MYSQL_DB='salon'
 )
 
@@ -58,6 +58,7 @@ from salon_gallery import salon_gallery_bp
 from cart import cart_bp
 from products import products_bp
 from user_dashboard import user_dashboard_bp
+from users import users_bp
 
 app.register_blueprint(login_bp)
 app.register_blueprint(register_bp)
@@ -75,6 +76,7 @@ app.register_blueprint(salon_gallery_bp)
 app.register_blueprint(cart_bp)
 app.register_blueprint(products_bp)
 app.register_blueprint(user_dashboard_bp)
+app.register_blueprint(users_bp)
 
 @app.route('/')
 def home():

@@ -11,11 +11,11 @@ def salonData():
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select s.name, sa.average_rating
+            select s.name, avg(r.rating) as average_rating
             from salons s
-            join salon_analytics sa on sa.salon_id = s.salon_id
-            order by sa.average_rating desc
-            limit 6
+            join reviews r on r.salon_id = s.salon_id
+            group by s.name
+            limit 6;
         """
         cursor.execute(query)
         rows = cursor.fetchall()
@@ -25,6 +25,7 @@ def salonData():
         return jsonify({'salons': data}), 200
     except Exception as e:
         return jsonify({'error': 'Failed to fetch salons', 'details': str(e)}), 500
+
     
 def generate_iter_pages(current_page, total_pages, left_edge=2, right_edge=2, left_current=2, right_current=2):
     last = 0
