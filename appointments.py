@@ -246,12 +246,8 @@ def view_appointments():
     try:
         if user_type == 'customer':
             cursor.execute("""
-                SELECT 
-                    a.appointment_id, 
-                    a.appointment_date, 
-                    a.status,
-                    s.name AS salon_name, 
-                    sv.name AS service_name
+                SELECT a.appointment_id, a.appointment_date, a.status,
+                       s.name AS salon_name, sv.name AS service_name
                 FROM appointments a
                 JOIN salons s ON a.salon_id = s.salon_id
                 JOIN services sv ON a.service_id = sv.service_id
