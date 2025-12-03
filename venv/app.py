@@ -13,7 +13,7 @@ app.secret_key = 'G76D-U89V-576V-7BT6'
 app.config.update(
     MYSQL_HOST='localhost',
     MYSQL_USER='root',
-    MYSQL_PASSWORD='B3njamin178',
+    MYSQL_PASSWORD='5283',
     MYSQL_DB='salon'
 )
 
@@ -81,19 +81,6 @@ app.register_blueprint(users_bp)
 @app.route('/')
 def home():
     return "it works!"
-
-@app.route("/email")
-def email():
-    from emails import send_email
-    try:
-        send_email(
-            to="alexiades.v@gmail.com",
-            subject="Test Email",
-            body="This is a test from Flask-Mail."
-        )
-        return "Email sent successfully!"
-    except Exception as e:
-        return f"Email failed: {e}"
 
 if __name__ == '__main__':
     app.run(debug=True)

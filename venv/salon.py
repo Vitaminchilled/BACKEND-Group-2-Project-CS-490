@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, session
 from flask import current_app
 import json
+from emails import send_email
 
 salon_bp = Blueprint('salon', __name__)
 
@@ -271,3 +272,74 @@ def get_salon_info(salon_id):
         }), 200
     except Exception as e:
         return jsonify({'error': 'Failed to fetch salon', 'details': str(e)}), 500
+    
+
+#salon should be able to send customer's email updates for appointments 24 hours before the appointment 
+@salon_bp.route('/salon/<int:salon_id>/appointments/<int:appointment_id>/email', methods=['POST'])
+def send_appointment_email(salon_id, appointment_id):
+    try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+
+        query = """
+            select users.email, appointments.appointment_date, appointments.start_time, salons.name as salon_name
+            from appointments
+            join users on appointments.customer_id = users.user_id
+            join salons on appointments.salon_id = salons.salon_id
+            where appointments.appointment_id = %s and appointments.salon_id = %s
+        """
+        cursor.execute(query, (appointment_id, salon_id))
+        appointment = cursor.fetchone()
+        cursor.close()
+
+        if not appointment:
+            return jsonify({'error': 'Appointment not found'}), 404
+
+        customer_email = appointment[0]
+        appointment_date = appointment[1]
+        appointment_time = appointment[2]
+        salon_name = appointment[3]
+
+        subject = f"Appointment Confirmation at {salon_name}"
+        body = f"Dear Customer,\n\nThis is a confirmation for your appointment at {salon_name} on {appointment_date} at {appointment_time}.\n\nThank you!"
+
+        send_email(to_address=customer_email, subject=subject, body=body)
+
+        return jsonify({'message': 'Email sent successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': 'Failed to send email', 'details': str(e)}), 500
+
+#send promotional emails to all customers of the salon who favorited the salon or had an appointment there
+@salon_bp.route('/salon/<int:salon_id>/promotions/email', methods=['POST'])
+def send_promotional_email(salon_id):
+    try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+        data = request.get_json()
+        promotional_message = data.get('message', '')
+        if not promotional_message:
+            return jsonify({'error': 'Promotional message is required'}), 400
+
+        query = """
+            select distinct users.email
+            from users
+            join saved_salons on users.user_id = saved_salons.customer_id
+            left join appointments on users.user_id = appointments.customer_id
+            where (saved_salons.salon_id = 1 or appointments.salon_id = 1)
+        """
+        cursor.execute(query, (salon_id, salon_id))
+        customers = cursor.fetchall()
+        cursor.close()
+
+        if not customers:
+            return jsonify({'message': 'No customers found for promotional email'}), 200
+
+        subject = "Exclusive Promotion from Your Favorite Salon!"
+        for customer in customers:
+            customer_email = customer[0]
+            body = f"Dear Customer,\n\n{promotional_message}\n\nBest regards,\nYour Favorite Salon"
+            send_email(to_address=customer_email, subject=subject, body=body)
+        return jsonify({'message': 'Promotional emails sent successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': 'Failed to send promotional emails', 'details': str(e)}), 500
+    
