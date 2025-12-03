@@ -2,8 +2,10 @@ from flask import Flask
 from flask_mysqldb import MySQL
 from flask_cors import CORS
 from flask_mail import Mail
-from flask_mail import Message
+from apscheduler.schedulers.background import BackgroundScheduler
 from flasgger import Swagger
+from datetime import datetime, timedelta
+from emails import send_email
 
 app = Flask(__name__)
 CORS(app)
@@ -41,7 +43,6 @@ swagger_template = {
 
 Swagger(app, template=swagger_template) 
 
-
 from login import login_bp
 from register import register_bp
 from services import services_bp
@@ -78,9 +79,47 @@ app.register_blueprint(products_bp)
 app.register_blueprint(user_dashboard_bp)
 app.register_blueprint(users_bp)
 
-@app.route('/')
-def home():
-    return "it works!"
+scheduled_appointments = set()
+#send customer's email updates for appointments 24 hours before the appointment 
+def send_appointment_reminder():
+    with app.app_context():
+        mysql = app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+
+        now = datetime.now()
+        reminder_time = now + timedelta(hours=24)
+        reminder_window_end = reminder_time + timedelta(hours=8)
+
+        query = """
+            select users.email, appointments.appointment_date, appointments.start_time, salons.name as salon_name, appointments.appointment_id
+            from appointments
+            join users on appointments.customer_id = users.user_id
+            join salons on appointments.salon_id = salons.salon_id
+            where appointments.appointment_date = %s
+        """
+        cursor.execute(query, (reminder_time.date(),))
+        appointments = cursor.fetchall()
+        cursor.close()
+
+        for email, appointment_date, appointment_time, salon_name, appointment_id in appointments:
+            appt_datetime = datetime.combine(appointment_date, appointment_time)
+            if reminder_time <= appt_datetime <= reminder_window_end:
+                if appointment_id in scheduled_appointments:
+                    continue
+
+                subject = f"Reminder: Appointment at {salon_name}"
+                body = (
+                    f"Dear Customer,\n\n"
+                    f"This is a reminder for your appointment at {salon_name} "
+                    f"on {appointment_date} at {appointment_time}.\n\nThank you!"
+                )
+                send_email(email, subject, body)
+
+                scheduled_appointments.add(appointment_id)
+        
+scheduler = BackgroundScheduler()
+scheduler.add_job(send_appointment_reminder, 'interval', hours=8)
+scheduler.start()
 
 if __name__ == '__main__':
     app.run(debug=True)
