@@ -788,3 +788,188 @@ def employee_weekly_availability(employee_id):
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
+
+# getter for book appointment where week starts with sunday
+# gets the week based on the date you put in
+@appointments_bp.route('/employees/<int:employee_id>/weekly-availability/sunday-based', methods=['GET'])
+def sunday_based_availability(employee_id):
+    req_date = request.args.get('date')
+    increment_minutes = 15
+
+    target_date = None
+    if req_date:
+        try:
+            target_date = datetime.strptime(req_date, "%Y-%m-%d").date()
+        except ValueError:
+            return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD.'}), 400
+        
+    weekday_index = (target_date.weekday() + 1) % 7
+    week_start = target_date - timedelta(days=weekday_index)
+    week_end = week_start + timedelta(days=6)
+    
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor(DictCursor)
+
+    try:
+        cursor.execute("SELECT salon_id FROM employees WHERE employee_id = %s", (employee_id,))
+        emp = cursor.fetchone()
+        if not emp:
+            return jsonify({'error': 'Employee not found'}), 404
+        salon_id = emp['salon_id']
+
+        def normalize_time(t):
+            if isinstance(t, timedelta):
+                hours, remainder = divmod(t.total_seconds(), 3600)
+                minutes, seconds = divmod(remainder, 60)
+                return dt_time(int(hours), int(minutes), int(seconds))
+            if isinstance(t, str):
+                return datetime.strptime(t, "%H:%M:%S").time()
+            return t
+        
+        days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+
+        cursor.execute("""
+            SELECT day, open_time, close_time, is_closed
+            FROM operating_hours
+            WHERE salon_id = %s
+        """, (salon_id,))
+        op_map = {r['day']: r for r in cursor.fetchall()}
+
+        cursor.execute("""
+            SELECT day, start_time, end_time, is_available
+            FROM time_slots
+            WHERE employee_id = %s AND salon_id = %s
+        """, (employee_id, salon_id))
+        time_slots_rows = cursor.fetchall()
+
+        sched_map = {}
+        ts_by_day = {}
+        for r in time_slots_rows:
+            day = r['day']
+            ts_by_day.setdefault(day, []).append(r)
+            if r['is_available']:
+                sched_map[day] = r
+
+        cursor.execute("""
+            SELECT appointment_date, start_time, end_time
+            FROM appointments
+            WHERE 
+                employee_id=%s AND 
+                salon_id=%s AND 
+                DATE(appointment_date) BETWEEN %s AND %s AND 
+                status IN ('booked', 'confirmed')
+        """, (employee_id, salon_id, week_start, week_end))
+
+        appts_by_date = {}
+
+        for row in cursor.fetchall():
+            ad = row['appointment_date']
+            if isinstance(ad, datetime):
+                ad = ad.date()
+            appts_by_date.setdefault(ad, []).append(row)
+
+        # interval checking
+        def is_time_in_intervals(check_time, check_end_time, intervals):
+            """Check if a time period overlaps with any interval"""
+            for interval_start, interval_end in intervals:
+                # Check for overlap
+                latest_start = max(check_time, interval_start)
+                earliest_end = min(check_end_time, interval_end)
+                if latest_start < earliest_end:
+                    return True
+            return False
+
+        week_result = []
+
+        for i, day in enumerate(days):
+            day_date = week_start + timedelta(days=i)
+            op = op_map.get(day)
+
+            day_entry = {
+                "day": day,
+                "date": day_date.isoformat(),
+                "salon_closed": False,
+                "operating_hours": None,
+                "employee_schedule": None,
+                "timeline" : []
+            }
+
+            if not op or op['is_closed']:
+                day_entry['salon_closed'] = True
+                week_result.append(day_entry)
+                continue
+
+            # get operating hours
+            open_time = normalize_time(op['open_time'])
+            close_time = normalize_time(op['close_time'])
+            day_entry['operating_hours'] = {
+                'open_time': open_time.strftime("%H:%M:%S"),
+                'close_time': close_time.strftime("%H:%M:%S")
+            }
+
+             # Check employee schedule
+            sched = sched_map.get(day)
+            if sched:
+                sched_start = normalize_time(sched['start_time'])
+                sched_end = normalize_time(sched['end_time'])
+                day_entry['employee_schedule'] = {
+                    'start_time': sched_start.strftime("%H:%M:%S"),
+                    'end_time': sched_end.strftime("%H:%M:%S")
+                }
+
+            # Prepare intervals for checking
+            unavailable_intervals = []
+            for ts in ts_by_day.get(day, []):
+                if not ts['is_available']:
+                    start = normalize_time(ts['start_time'])
+                    end = normalize_time(ts['end_time'])
+                    unavailable_intervals.append((start, end))
+
+            # Appointments for this day
+            appt_intervals = []
+            for appt in appts_by_date.get(day_date, []):
+                start = normalize_time(appt['start_time'])
+                end = normalize_time(appt['end_time'])
+                appt_intervals.append((start, end))
+
+            # Build timeline
+            current = datetime.combine(datetime.today(), open_time)
+            end_dt = datetime.combine(datetime.today(), close_time)
+
+            while current <= end_dt:
+                slot_time = current.time()
+                slot_end = (current + timedelta(minutes=increment_minutes)).time()
+                
+                # Determine status with clear priority
+                if not sched or not (sched_start <= slot_time < sched_end):
+                    status = 'not_working'
+                elif is_time_in_intervals(slot_time, slot_end, unavailable_intervals):
+                    status = 'unavailable'
+                elif is_time_in_intervals(slot_time, slot_end, appt_intervals):
+                    status = 'booked'
+                else:
+                    status = 'available'
+
+                day_entry['timeline'].append({
+                    'time': slot_time.strftime("%H:%M:%S"),
+                    'status': status
+                })
+
+                current += timedelta(minutes=increment_minutes)
+
+            week_result.append(day_entry)
+
+        return jsonify({
+            'employee_id': employee_id,
+            'salon_id': salon_id,
+            'increment_minutes': increment_minutes,
+            'week_start': week_start.isoformat(),
+            'week_end': week_end.isoformat(),
+            'week': week_result
+        }), 200
+
+    except Exception as e:
+        mysql.connection.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
