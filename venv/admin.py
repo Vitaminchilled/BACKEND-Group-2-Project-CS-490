@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, session
 from flask import current_app
+from emails import send_email
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -19,6 +20,11 @@ def get_users():
         description: Failed to fetch users
     """
     try:
+        #make sure admin is logged in
+        session_user_role = session.get("role")
+        if session_user_role != 'admin':
+            return jsonify({'error': 'Unauthorized access'}), 403
+        
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
@@ -35,7 +41,6 @@ def get_users():
         return jsonify({'users': data}), 200
     except Exception as e:
         return jsonify({'error': 'Failed to fetch users', 'details': str(e)}), 500
-    
 
 #Admin Salon page - Retrieve all salons that are verified (DONE)
 @admin_bp.route('/admin/verifiedSalons', methods=['GET'])
@@ -52,6 +57,11 @@ def allSalons():
         description: Failed to fetch salons
     """
     try:
+        #make sure admin is logged in
+        session_user_role = session.get("role")
+        if session_user_role != 'admin':
+            return jsonify({'error': 'Unauthorized access'}), 403
+        
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
@@ -99,6 +109,11 @@ def salonsToVerify():
         description: Failed to fetch salons
     """
     try:
+        #make sure admin is logged in
+        session_user_role = session.get("role")
+        if session_user_role != 'admin':
+            return jsonify({'error': 'Unauthorized access'}), 403
+        
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
@@ -159,6 +174,11 @@ def verifySalon():
         description: Failed to verify salon
     """
     try:
+        #make sure admin is logged in
+        session_user_role = session.get("role")
+        if session_user_role != 'admin':
+            return jsonify({'error': 'Unauthorized access'}), 403
+        
         data = request.get_json()
         salon_id = data["salon_id"]
         is_verified = data["is_verified"]
@@ -166,14 +186,57 @@ def verifySalon():
         mysql = current_app.config['MYSQL']
         conn = mysql.connection
         cursor = mysql.connection.cursor()
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
+
+        #get salon owner info
+        cursor.execute("""
+                select owner_id, email, name
+                from salons 
+                where salon_id = %s
+            """, (salon_id,))
+        owner_id, salon_email, salon_name = cursor.fetchone() 
+
         if(is_verified):
             cursor.execute("""
                 UPDATE salons
                 SET is_verified = TRUE
                 WHERE salon_id = %s
             """, (salon_id,))
+        
+        #notify the owner via email
+            try:
+                send_email(
+                    to=salon_email,
+                    subject="Salon Application Approved",
+                    body=f"Dear {salon_name},\n\nCongratulations! Your salon application has been approved. You can now start offering your services on our platform.\n\nBest regards,\nSalon Management Team"
+                )
+            except Exception as e:
+                print(f"Failed to send approval email: {e}")
         else:
-            cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
+            reason = data.get("reason", "No reason provided")
+            #log the reason for rejection
+            cursor.execute("""
+                insert into salon_rejections(salon_id, admin_id, reason)
+                values (%s, %s, %s)
+            """, (salon_id, session.get("user_id"), reason))
+
+            #notify the owner via email   
+            
+            cursor.execute("""
+                insert into notifications(user_id, title, message)
+                values (%s, %s, %s)
+            """, (owner_id, "Salon Application Rejected", f"Dear {salon_name}, your salon application has been rejected for the following reason: {reason}"))
+
+            try:
+                send_email(
+                    to=salon_email,
+                    subject="Salon Application Rejected",
+                    body=f"Dear {salon_name},\n\nWe regret to inform you that your salon application has been rejected for the following reason:\n\n{reason}\n\nIf you have any questions, please contact our support team.\n\nBest regards,\nSalon Management Team"
+                )
+            except Exception as e:
+                print(f"Failed to send rejection email: {e}")
+
+            #delete the salon's data from all related tables
             cursor.execute("""
                 DELETE FROM review_replies 
                 WHERE review_id IN (SELECT review_id FROM reviews WHERE salon_id = %s)
@@ -195,7 +258,6 @@ def verifySalon():
             cursor.execute("DELETE FROM customer_vouchers WHERE salon_id = %s", (salon_id,))
             cursor.execute("DELETE FROM appointments WHERE salon_id = %s", (salon_id,))
             cursor.execute("DELETE FROM carts WHERE salon_id = %s", (salon_id,))
-            cursor.execute("DELETE FROM employee_schedules WHERE salon_id = %s", (salon_id,)) 
             cursor.execute("DELETE FROM employee_salaries WHERE salon_id = %s", (salon_id,))
             cursor.execute("DELETE FROM time_slots WHERE salon_id = %s", (salon_id,))
             cursor.execute("DELETE FROM salon_gallery WHERE salon_id = %s", (salon_id,))
@@ -223,7 +285,6 @@ def verifySalon():
     except Exception as e:
         return jsonify({'error': 'Failed to verify salon', 'details': str(e)}), 500
 
-
 #Admin User page - Deletes specific user (WORKS)
 @admin_bp.route('/admin/deleteUser', methods=['DELETE'])
 def deleteUser():
@@ -245,6 +306,11 @@ def deleteUser():
         description: Failed to delete user
     """
     try:
+        #make sure admin is logged in
+        session_user_role = session.get("role")
+        if session_user_role != 'admin':
+            return jsonify({'error': 'Unauthorized access'}), 403
+        
         data = request.get_json()
         user_id = data["user_id"]
 
@@ -252,9 +318,21 @@ def deleteUser():
         conn = mysql.connection
         cursor = mysql.connection.cursor()
 
-        cursor.execute("SELECT role FROM users WHERE user_id = %s", (user_id,))
+        cursor.execute("SELECT role, email, first_name FROM users WHERE user_id = %s", (user_id,))
         user_data = cursor.fetchone()
         role = user_data[0]
+        user_email = user_data[1]
+        user_name = user_data[2]
+
+        #notify why the account was deleted
+        try:
+            send_email(
+                to=user_email,
+                subject="Account Deletion Notice",
+                body=f"Dear {user_name},\n\nWe would like to inform you that your account has been deleted by the administration team. If you have any questions or believe this was done in error, please contact our support team.\n\nBest regards,\nSalon Management Team"
+            )
+        except Exception as e:
+            print(f"Failed to send account deletion email: {e}")
 
         cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
 
