@@ -2,7 +2,6 @@ from flask import Blueprint, request, jsonify, session
 from werkzeug.security import check_password_hash
 from flask import current_app
 from flasgger import swag_from
-
 login_bp = Blueprint('login', __name__)
 
 @login_bp.route('/login', methods=['POST'])

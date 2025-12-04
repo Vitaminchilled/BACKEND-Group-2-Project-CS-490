@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, session
 from flask import current_app
-from emails import send_email
+from utils.emails import send_email
+from utils.logerror import log_error
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -40,6 +41,8 @@ def get_users():
         data = [dict(zip(cols, row)) for row in rows]
         return jsonify({'users': data}), 200
     except Exception as e:
+        #save error to audit logs
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch users', 'details': str(e)}), 500
 
 #Admin Salon page - Retrieve all salons that are verified (DONE)
@@ -92,6 +95,7 @@ def allSalons():
         data = [dict(zip(cols, row)) for row in rows]
         return jsonify({'salons': data}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch salons', 'details': str(e)}), 500
 
 #Admin Verify page - Retrieve all salons that need verification (DONE)
@@ -144,6 +148,7 @@ def salonsToVerify():
         data = [dict(zip(cols, row)) for row in rows]
         return jsonify({'salons': data}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch salons', 'details': str(e)}), 500
 
 #Admin Verify page - Handles verifying and rejecting salons (DONE)
@@ -211,6 +216,7 @@ def verifySalon():
                     body=f"Dear {salon_name},\n\nCongratulations! Your salon application has been approved. You can now start offering your services on our platform.\n\nBest regards,\nSalon Management Team"
                 )
             except Exception as e:
+                log_error(str(e), session.get("user_id"))
                 print(f"Failed to send approval email: {e}")
         else:
             reason = data.get("reason", "No reason provided")
@@ -234,6 +240,7 @@ def verifySalon():
                     body=f"Dear {salon_name},\n\nWe regret to inform you that your salon application has been rejected for the following reason:\n\n{reason}\n\nIf you have any questions, please contact our support team.\n\nBest regards,\nSalon Management Team"
                 )
             except Exception as e:
+                log_error(str(e), session.get("user_id"))
                 print(f"Failed to send rejection email: {e}")
 
             #delete the salon's data from all related tables
@@ -274,6 +281,7 @@ def verifySalon():
             "is_verified": is_verified
         }), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to verify salon', 'details': str(e)}), 500
 
 #Admin User page - Deletes specific user (WORKS)
@@ -323,6 +331,7 @@ def deleteUser():
                 body=f"Dear {user_name},\n\nWe would like to inform you that your account has been deleted by the administration team. If you have any questions or believe this was done in error, please contact our support team.\n\nBest regards,\nSalon Management Team"
             )
         except Exception as e:
+            log_error(str(e), session.get("user_id"))
             print(f"Failed to send account deletion email: {e}")
 
         cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
@@ -372,4 +381,5 @@ def deleteUser():
             "message": "User Deleted"
         }), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to delete user', 'details': str(e)}), 500

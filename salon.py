@@ -1,11 +1,12 @@
 from flask import Blueprint, request, jsonify, session
 from flask import current_app
 import json
-from emails import send_email
+from utils.emails import send_email
 from flask_mail import Message
 from apscheduler.schedulers.background import BackgroundScheduler
 scheduler = BackgroundScheduler()
 from datetime import datetime, timedelta
+from utils.logerror import log_error
 
 salon_bp = Blueprint('salon', __name__)
 
@@ -29,6 +30,7 @@ def salonData():
         data = [dict(zip(columns, row)) for row in rows]
         return jsonify({'salons': data}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch salons', 'details': str(e)}), 500
 
     
@@ -178,6 +180,7 @@ def get_salons():
             'iter_pages': iter_pages
         }), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch salons', 'details': str(e)}), 500
     
 @salon_bp.route('/salon/<int:salon_id>/header', methods=['GET'])
@@ -275,6 +278,7 @@ def get_salon_info(salon_id):
             'master_tags' : master_tag_list
         }), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch salon', 'details': str(e)}), 500
     
 #send promotional emails to all customers of the salon who favorited the salon or had an appointment there
@@ -309,5 +313,6 @@ def send_promotional_email(salon_id):
             send_email(to_address=customer_email, subject=subject, body=body)
         return jsonify({'message': 'Promotional emails sent successfully'}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to send promotional emails', 'details': str(e)}), 500
     

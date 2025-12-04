@@ -1,5 +1,6 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, session
 from datetime import datetime
+from utils.logerror import log_error
 
 cart_bp = Blueprint('cart', __name__)
 
@@ -73,6 +74,7 @@ def view_cart(customer_id, salon_id):
             })
         return jsonify({'cart': cart_list, 'total': float(total)}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Error displaying cart'}), 500
     
 #add to cart
@@ -150,6 +152,7 @@ def add_to_cart():
         cursor.close()
         return jsonify({'message': 'Product added to cart', 'cart_id': cart_id}), 201
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Error adding product'}), 500
 
 #remove from cart
@@ -193,6 +196,7 @@ def remove_from_cart():
         cursor.close()
         return jsonify({'message': 'Item removed from cart'}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Error removing product'}), 500
     
 #update quantity
@@ -253,5 +257,6 @@ def update_cart_quantity():
         cursor.close()
         return jsonify({'message': 'Cart quantity updated'}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Error updating cart'}), 500
     

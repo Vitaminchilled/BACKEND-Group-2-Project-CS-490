@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, session
 from flask import current_app
 from datetime import datetime
+from utils.logerror import log_error
 import json
 
 employees_bp = Blueprint('employees', __name__)
@@ -85,6 +86,7 @@ def get_employees(salon_id):
         cursor.close()
         return jsonify({'employees': result}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while fetching employees."}), 500
 
 @employees_bp.route('/salon/<int:salon_id>/employees', methods=['POST'])
@@ -164,6 +166,7 @@ def add_employee(salon_id):
 
         return jsonify({"message": "Employee added successfully", "employee_id": employee_id}), 201
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while adding the employee."}), 500
     
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>', methods=['PUT'])
@@ -251,7 +254,7 @@ def edit_employee(salon_id, employee_id):
         cursor.close()
         return jsonify({"message": "Employee updated successfully"}), 200
     except Exception as e:
-        current_app.logger.error(f"Error updating employee {employee_id}: {e}")
+        log_error(str(e), session.get("user_id"))
         cursor.close()
         return jsonify({"error": "An error occurred while updating the employee."}), 500
 
@@ -314,7 +317,7 @@ def delete_employee(salon_id, employee_id):
         cursor.close()
         return jsonify({"message": "Employee deleted successfully"}), 200
     except Exception as e:
-        current_app.logger.error(f"Error updating employee {employee_id}: {e}")
+        log_error(str(e), session.get("user_id"))
         cursor.close()
         return jsonify({"error": "An error occurred while deleting the employee."}), 500
     
@@ -417,6 +420,7 @@ def add_timeslot(salon_id, employee_id):
         cursor.close()
         return jsonify({"message": "Time slot added successfully"}), 201
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while adding the time slot."}), 500
     
 
@@ -464,6 +468,7 @@ def get_timeslots(salon_id, employee_id):
                     timeslot[key] = str(timeslot[key])
         return jsonify(timeslots), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while fetching time slots."}), 500
 
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/timeslots/<int:slot_id>', methods=['PUT'])
@@ -569,6 +574,7 @@ def edit_timeslot(salon_id, employee_id, slot_id):
         cursor.close()
         return jsonify({"message": "Time slot updated successfully"}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while updating the time slot."}), 500
     
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/timeslots/<int:slot_id>', methods=['DELETE'])
@@ -609,6 +615,7 @@ def delete_timeslot(salon_id, employee_id, slot_id):
         cursor.close()
         return jsonify({"message": "Time slot deleted successfully"}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while deleting the time slot."}), 500
 
 @employees_bp.route('/salon/<int:salon_id>/employees/salaries', methods=['GET'])
@@ -660,6 +667,7 @@ def get_salaries(salon_id):
 
         return jsonify(salaries)
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while displaying the salaries."}), 500
 
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/salaries', methods=['POST'])
@@ -719,6 +727,7 @@ def add_salary(salon_id, employee_id):
         cursor.close()
         return jsonify({"message": "Salary added successfully"}), 201
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while adding the salary."}), 500
 
 #displays the salary histories of a specific employee 
@@ -765,4 +774,5 @@ def get_salary(salon_id, employee_id):
 
         return jsonify(salaries), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while fetching the employee's salary history."}), 500

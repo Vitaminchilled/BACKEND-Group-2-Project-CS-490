@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, session
 from flask import current_app
 import json
+from utils.logerror import log_error
 
 services_bp = Blueprint('services', __name__)
 
@@ -63,6 +64,7 @@ def get_services(salon_id):
         cursor.close()
         return jsonify({'services': result}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch services', 'details': str(e)}), 500
     
 @services_bp.route('/salon/<int:salon_id>/services/add', methods=['POST'])
@@ -108,6 +110,7 @@ def add_service(salon_id):
         cursor.close()
         return jsonify({'message': 'Service added successfully'}), 201
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to add service', 'details': str(e)}), 500
 
 @services_bp.route('/salon/<int:salon_id>/services/<int:service_id>/edit', methods=['PUT'])
@@ -159,6 +162,7 @@ def edit_service(salon_id, service_id):
         cursor.close()
         return jsonify({'message': 'Service updated successfully'}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to update service', 'details': str(e)}), 500
 
 @services_bp.route('/salon/<int:salon_id>/services/<int:service_id>', methods=['DELETE'])
@@ -181,4 +185,5 @@ def delete_service(salon_id, service_id):
         cursor.close()
         return jsonify({'message': 'Service deleted successfully'}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to delete service', 'details': str(e)}), 500

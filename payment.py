@@ -2,6 +2,7 @@ import random
 import string
 from flask import Blueprint, request, jsonify, current_app, session
 from datetime import datetime
+from utils.logerror import log_error
 
 payment_bp = Blueprint('payment', __name__)
 
@@ -194,6 +195,7 @@ def list_wallets(customer_id):
         return jsonify({'customer_id': customer_id, 'wallets': result}), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': f'Failed to fetch wallets: {str(e)}'}), 500
     
 def apply_discount(mysql, customer_id, salon_id, service_id, subtotal, loyalty_voucher_id=None, promo_code=None):
@@ -429,6 +431,7 @@ def pay_appointment():
             'timestamp': invoice['timestamp']
         }), 201
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': f'Payment was not processed: {str(e)}'}), 500
     
 @payment_bp.route('/cart/payment', methods=['POST'])
@@ -621,6 +624,7 @@ def pay_cart():
             'timestamp': invoice['timestamp']
         }), 201
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': f'Payment was not processed: {str(e)}'}), 500
     
@@ -681,6 +685,7 @@ def payment_history(customer_id):
             })
         return jsonify({'customer_id': customer_id, 'payments': result}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': f'Error fetching payment history: {str(e)}'}), 500
     
 @payment_bp.route('/payments/refund/<int:invoice_id>', methods=['POST'])
@@ -761,5 +766,6 @@ def refund_payment(invoice_id):
             'timestamp': timestamp
         }), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': f'Refund failed: {str(e)}'}), 500

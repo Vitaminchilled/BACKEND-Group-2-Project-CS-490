@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, session
 from flask import current_app
 import re
+from utils.logerror import log_error
 
 users_bp = Blueprint('users', __name__)
 
@@ -28,6 +29,7 @@ def userDetails():
         return jsonify(user_data), 200
     
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch user details', 'details': str(e)}), 500
     
 #User details page - Update and Validation
@@ -157,6 +159,7 @@ def updateUserDetails():
         return jsonify({"message": "User details updated successfully"}), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         if 'cursor' in locals() and cursor:
             cursor.close()
         return jsonify({"error": "Failed to update user details", "details": str(e)}), 500

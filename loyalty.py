@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, session
 from flask import current_app
+from utils.logerror import log_error
 
 loyalty_bp = Blueprint('loyalty', __name__)
 
@@ -43,6 +44,7 @@ def get_active_loyalty(salon_id):
         loyalty = cursor.fetchall()
         return jsonify(loyalty), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch loyalty programs', 'details': str(e)}), 500
 
 #salons can view active and inactive loyalty programs
@@ -83,6 +85,7 @@ def get_loyalty(salon_id):
         loyalty = cursor.fetchall()
         return jsonify(loyalty), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch loyalty programs', 'details': str(e)}), 500
 
 #salons can add loyalty
@@ -167,6 +170,7 @@ def add_loyalty(salon_id):
         cursor.close()
         return jsonify({"message": "Loyalty program added successfully"}), 201
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "Failed to add loyalty program"}), 500 
 
 #salons can edit loyalty
@@ -250,6 +254,7 @@ def edit_loyalty(loyalty_program_id):
         cursor.close()
         return jsonify({"message": "Loyalty program updated successfully"}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "Failed to update loyalty program"}), 500 
 
 #salons can disable loyalty
@@ -283,6 +288,7 @@ def disable_loyalty(loyalty_program_id):
         mysql.connection.commit()
         return jsonify({"message": "Loyalty program disabled"}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "Failed to disable loyalty program"}), 500 
 
 #salons can enable loyalty
@@ -316,6 +322,7 @@ def enable_loyalty(loyalty_program_id):
         mysql.connection.commit()
         return jsonify({"message": "Loyalty program enabled"}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "Failed to enable loyalty program"}), 500
 
 #display customer loyalty points
@@ -365,6 +372,7 @@ def get_customer_points(salon_id, customer_id):
 
         return jsonify(result), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "Failed to fetch customer points", "details": str(e)}), 500
     
 #customer collects loyalty voucher
@@ -453,6 +461,7 @@ def claim_voucher(salon_id):
         mysql.connection.commit()
         return jsonify({"message": "Voucher claimed successfully"}), 201
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "Voucher cannot be claimed at this time"}), 500
 
 #customer tracks loyalty vouchers
@@ -492,4 +501,5 @@ def get_vouchers(customer_id):
         vouchers = cursor.fetchall()
         return jsonify(vouchers), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "No vouchers availables"}), 500

@@ -1,6 +1,8 @@
 from flask import Blueprint, request, jsonify, current_app
 from datetime import datetime, timedelta, time as dt_time
 from MySQLdb.cursors import DictCursor
+from utils.logerror import log_error
+from flask import session
 
 appointments_bp = Blueprint('appointments_bp', __name__)
 
@@ -187,6 +189,7 @@ def book_appointment():
         }), 201
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
 
@@ -271,6 +274,7 @@ def view_appointments():
         return jsonify({'appointments': appointments}), 200
         
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -308,6 +312,7 @@ def total_appointments(salon_id):
         return jsonify(result), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -456,6 +461,7 @@ def update_appointment():
         }), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
 
@@ -518,6 +524,7 @@ def cancel_appointment():
         return jsonify({'message': 'Appointment cancelled successfully'}), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
@@ -784,6 +791,7 @@ def employee_weekly_availability(employee_id):
         }), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
@@ -969,6 +977,7 @@ def sunday_based_availability(employee_id):
         }), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:

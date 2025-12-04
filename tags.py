@@ -1,4 +1,5 @@
-from flask import Blueprint, jsonify, current_app
+from flask import Blueprint, jsonify, current_app, session
+from utils.logerror import log_error
 
 tags_bp = Blueprint('tags', __name__)
 
@@ -22,6 +23,7 @@ def get_master_tags():
             }for master_tag in master_tags]
         }), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch master tags', 'details': str(e)}), 500
     
 @tags_bp.route('/tags/<int:master_tag_id>', methods=['GET'])
@@ -40,4 +42,5 @@ def get_tags(master_tag_id):
         cursor.close()
         return jsonify({'tags': tags}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch tags', 'details': str(e)}), 500   

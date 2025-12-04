@@ -1,7 +1,8 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, session
 from MySQLdb.cursors import DictCursor
 from datetime import datetime
 from flasgger import swag_from
+from utils.logerror import log_error
 
 products_bp = Blueprint('products_bp', __name__)
 
@@ -48,6 +49,7 @@ def get_products():
         return jsonify({'products': products}), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -121,6 +123,7 @@ def add_product():
         return jsonify({'message': 'Product added successfully'}), 201
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
@@ -216,6 +219,7 @@ responses:
         return jsonify({'message': 'Product updated successfully'}), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
@@ -276,6 +280,7 @@ def delete_product(product_id):
         return jsonify({'message': 'Product deleted successfully'}), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
