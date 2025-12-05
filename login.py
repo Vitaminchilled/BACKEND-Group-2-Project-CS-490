@@ -2,6 +2,8 @@ from flask import Blueprint, request, jsonify, session
 from werkzeug.security import check_password_hash
 from flask import current_app
 from flasgger import swag_from
+from utils.logerror import log_error
+
 login_bp = Blueprint('login', __name__)
 
 @login_bp.route('/login', methods=['POST'])
@@ -38,6 +40,7 @@ def login():
 
     #check if form is filled out
     if not username or not password:
+        log_error("Login attempt with missing fields", None)
         return jsonify({'error': 'Missing required fields'}), 400
 
     mysql = current_app.config['MYSQL']
@@ -47,11 +50,13 @@ def login():
     cursor.close()
     #check if user exists
     if not user:
+        log_error("Invalid login attempt for username: {}".format(username), None)
         return jsonify({'error': 'Invalid username or password'}), 401
     
     #check if password is correct
     user_id, hashed_password = user
     if not check_password_hash(hashed_password, password):
+        log_error("Invalid login attempt for username: {}".format(username), None)
         return jsonify({'error': 'Invalid username or password'}), 401
     
     session['user_id'] = user_id

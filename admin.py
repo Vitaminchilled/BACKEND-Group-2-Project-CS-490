@@ -24,6 +24,7 @@ def get_users():
         #make sure admin is logged in
         session_user_role = session.get("role")
         if session_user_role != 'admin':
+            log_error("Unauthorized access attempt to fetch users", session.get("user_id"))
             return jsonify({'error': 'Unauthorized access'}), 403
         
         mysql = current_app.config['MYSQL']
@@ -63,6 +64,7 @@ def allSalons():
         #make sure admin is logged in
         session_user_role = session.get("role")
         if session_user_role != 'admin':
+            log_error("Unauthorized access attempt to fetch salons", session.get("user_id"))
             return jsonify({'error': 'Unauthorized access'}), 403
         
         mysql = current_app.config['MYSQL']
@@ -116,6 +118,7 @@ def salonsToVerify():
         #make sure admin is logged in
         session_user_role = session.get("role")
         if session_user_role != 'admin':
+            log_error("Unauthorized access attempt to fetch unverified salons", session.get("user_id"))
             return jsonify({'error': 'Unauthorized access'}), 403
         
         mysql = current_app.config['MYSQL']
@@ -182,6 +185,7 @@ def verifySalon():
         #make sure admin is logged in
         session_user_role = session.get("role")
         if session_user_role != 'admin':
+            log_error("Unauthorized access attempt to verify salon", session.get("user_id"))
             return jsonify({'error': 'Unauthorized access'}), 403
         
         data = request.get_json()
@@ -305,17 +309,19 @@ def deleteUser():
         description: Failed to delete user
     """
     try:
+        mysql = current_app.config['MYSQL']
+        conn = mysql.connection
+        cursor = mysql.connection.cursor()
+
         #make sure admin is logged in
         session_user_role = session.get("role")
         if session_user_role != 'admin':
+            log_error("Unauthorized access attempt to delete user", session.get("user_id"))
             return jsonify({'error': 'Unauthorized access'}), 403
         
         data = request.get_json()
         user_id = data["user_id"]
 
-        mysql = current_app.config['MYSQL']
-        conn = mysql.connection
-        cursor = mysql.connection.cursor()
 
         cursor.execute("SELECT role, email, first_name FROM users WHERE user_id = %s", (user_id,))
         user_data = cursor.fetchone()
@@ -382,4 +388,5 @@ def deleteUser():
         }), 200
     except Exception as e:
         log_error(str(e), session.get("user_id"))
+        conn.rollback()
         return jsonify({'error': 'Failed to delete user', 'details': str(e)}), 500
