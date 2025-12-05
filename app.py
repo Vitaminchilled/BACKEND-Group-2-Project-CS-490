@@ -4,7 +4,7 @@ from flask_cors import CORS
 from flask_mail import Mail
 from apscheduler.schedulers.background import BackgroundScheduler
 from flasgger import Swagger
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from utils.emails import send_email
 
 app = Flask(__name__)
@@ -30,6 +30,7 @@ app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
 mysql = MySQL(app)
 mail = Mail(app)
 app.config['MYSQL'] = mysql
+SERVER_START_TIME = datetime.now(timezone.utc)
 
 swagger_template = {
     "swagger": "2.0",

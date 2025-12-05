@@ -1,4 +1,6 @@
 from flask import Blueprint, jsonify, request, current_app
+from datetime import datetime, timezone
+from app import SERVER_START_TIME
 
 analytics_bp = Blueprint('analytics', __name__)
 
@@ -22,6 +24,18 @@ def admin_get_errors():
     result = cursor.fetchall()
     cursor.close()
     return jsonify(result)
+
+#tracking uptime
+@analytics_bp.route('/admin/uptime', methods=['GET'])
+def get_uptime():
+    now = datetime.now(timezone.utc)
+    uptime_seconds = (now - SERVER_START_TIME).total_seconds()
+    
+    return jsonify({
+        "uptime_seconds": uptime_seconds,
+        "uptime_hours": round(uptime_seconds / 3600, 2),
+        "status": "OK"
+    })
 
 # top 5 highest earning services
 @analytics_bp.route('/admin/top-earning-services', methods=['GET'])
@@ -239,6 +253,25 @@ def admin_location_demographics():
     """
     cursor.execute(query)
     result = cursor.fetchall()
+    cursor.close()
+    return jsonify(result)
+
+#generate a general report 
+@analytics_bp.route('/admin/report-summary', methods=['GET'])
+def admin_report_summary():
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor(dictionary=True)
+
+    query = """
+        select 
+            (select count(*) from users) as total_users,
+            (select count(*) from salons) as total_salons,
+            (select sum(total_amount) from invoices) as total_revenue,
+            (select count(*) from appointments) as total_appointments,
+            (select sum(points_redeemed) from customer_points) as total_points_redeemed
+    """
+    cursor.execute(query)
+    result = cursor.fetchone()
     cursor.close()
     return jsonify(result)
 
