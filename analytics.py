@@ -3,6 +3,26 @@ from flask import Blueprint, jsonify, request, current_app
 analytics_bp = Blueprint('analytics', __name__)
 
 #FOR ADMINS 
+#tracking errors
+@analytics_bp.route('/admin/errors', methods=['GET'])
+def admin_get_errors():
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor()
+
+    limit = request.args.get('limit', 100)
+    offset = request.args.get('offset', 0)
+
+    query = """
+        select error_id, message, details, endpoint, method, payload, user_id, created_at
+        from error_logs
+        order by created_at desc
+        limit %s offset %s
+    """
+    cursor.execute(query, (limit, offset))
+    result = cursor.fetchall()
+    cursor.close()
+    return jsonify(result)
+
 # top 5 highest earning services
 @analytics_bp.route('/admin/top-earning-services', methods=['GET'])
 def admin_top_earning_services():
