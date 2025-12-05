@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, current_app
-from datetime import datetime, timedelta, time as dt_time
+from datetime import datetime, timedelta, time as dt_time, date
 from MySQLdb.cursors import DictCursor
 from utils.logerror import log_error
 from flask import session
@@ -208,6 +208,78 @@ def debug_test():
 
 # This is the appointments view function, this is the function you'll use when you want to
 # get data about appointments, maybe things like viewing appointment history and etc
+'''@appointments_bp.route('/appointments/view', methods=['GET'])
+def view_appointments():
+    """
+    View appointments for a customer or salon
+    ---
+    tags:
+      - Appointments
+    parameters:
+      - name: role
+        in: query
+        required: true
+        type: string
+        description: customer or salon
+      - name: id
+        in: query
+        required: true
+        type: integer
+        description: user or salon ID
+    responses:
+      200:
+        description: Appointments returned
+      400:
+        description: Missing required parameters
+    """
+    user_type = request.args.get('role')  # 'customer' or 'salon'
+    user_id = request.args.get('id')
+
+    if not all([user_type, user_id]):
+        return jsonify({'error': 'Missing required parameters'}), 400
+    
+    try:
+        user_id = int(user_id)
+    except ValueError:
+        return jsonify({'error': 'ID must be an integer'}), 400
+    
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor(DictCursor)
+    
+    try:
+        if user_type == 'customer':
+            cursor.execute("""
+                SELECT a.appointment_id, a.appointment_date, a.status,
+                       s.name AS salon_name, sv.name AS service_name, sv.price as service_price
+                FROM appointments a
+                JOIN salons s ON a.salon_id = s.salon_id
+                JOIN services sv ON a.service_id = sv.service_id
+                WHERE a.customer_id = %s
+                ORDER BY a.appointment_date DESC
+            """, (user_id,))
+        elif user_type == 'salon':
+            cursor.execute("""
+                SELECT a.appointment_id, a.appointment_date, a.status,
+                       u.first_name, u.last_name, sv.name AS service_name
+                FROM appointments a
+                JOIN users u ON a.customer_id = u.user_id
+                JOIN services sv ON a.service_id = sv.service_id
+                WHERE a.salon_id = %s
+                ORDER BY a.appointment_date DESC
+            """, (user_id,))
+        else:
+            return jsonify({'error': 'Invalid role specified'}), 400
+        
+        appointments = cursor.fetchall()
+        return jsonify({'appointments': appointments}), 200
+        
+    except Exception as e:
+        log_error(str(e), session.get("user_id"))
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+'''
+
 @appointments_bp.route('/appointments/view', methods=['GET'])
 def view_appointments():
     """
@@ -244,40 +316,171 @@ def view_appointments():
         return jsonify({'error': 'ID must be an integer'}), 400
     
     mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
+    cursor = mysql.connection.cursor(DictCursor)
     
     try:
         if user_type == 'customer':
             cursor.execute("""
-                SELECT a.appointment_id, a.appointment_date, a.status,
-                       s.name AS salon_name, sv.name AS service_name
+                SELECT 
+                    a.appointment_id, 
+                    a.appointment_date, 
+                    a.start_time,
+                    a.end_time,
+                    a.status,
+                    a.notes,
+                    s.salon_id,
+                    s.name AS salon_name,
+                    sv.service_id,
+                    sv.name AS service_name,
+                    sv.description AS service_description,
+                    sv.price AS service_price,
+                    sv.duration_minutes AS service_duration,
+                    e.employee_id,
+                    CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+                    e.description AS employee_description
                 FROM appointments a
                 JOIN salons s ON a.salon_id = s.salon_id
                 JOIN services sv ON a.service_id = sv.service_id
+                JOIN employees e ON a.employee_id = e.employee_id
                 WHERE a.customer_id = %s
-                ORDER BY a.appointment_date DESC
+                ORDER BY a.appointment_date DESC, a.start_time DESC
             """, (user_id,))
+            
         elif user_type == 'salon':
             cursor.execute("""
-                SELECT a.appointment_id, a.appointment_date, a.status,
-                       u.first_name, u.last_name, sv.name AS service_name
+                SELECT 
+                    a.appointment_id, 
+                    a.appointment_date, 
+                    a.start_time,
+                    a.end_time,
+                    a.status,
+                    a.notes,
+                    u.user_id AS customer_id,
+                    CONCAT(u.first_name, ' ', u.last_name) AS customer_name,
+                    u.email AS customer_email,
+                    u.phone_number AS customer_phone,
+                    sv.service_id,
+                    sv.name AS service_name,
+                    sv.description AS service_description,
+                    sv.price AS service_price,
+                    sv.duration_minutes AS service_duration,
+                    e.employee_id,
+                    CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+                    e.description AS employee_description
                 FROM appointments a
                 JOIN users u ON a.customer_id = u.user_id
                 JOIN services sv ON a.service_id = sv.service_id
+                JOIN employees e ON a.employee_id = e.employee_id
                 WHERE a.salon_id = %s
-                ORDER BY a.appointment_date DESC
+                ORDER BY a.appointment_date DESC, a.start_time DESC
             """, (user_id,))
         else:
             return jsonify({'error': 'Invalid role specified'}), 400
         
         appointments = cursor.fetchall()
-        return jsonify({'appointments': appointments}), 200
+
+        for appointment in appointments:
+            for key in ['appointment_date', 'start_time', 'end_time']:
+                if key in appointment and appointment[key] is not None:
+                    appointment[key] = str(appointment[key])
+            
+            # time slot
+            if appointment.get('start_time') and appointment.get('end_time'):
+                appointment['time_slot'] = f"{appointment['start_time']} - {appointment['end_time']}"
+        
+        return jsonify({
+            'appointments': appointments,
+            'count': len(appointments)
+        }), 200
         
     except Exception as e:
-        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
+
+
+@appointments_bp.route('/appointments/reviewless', methods=['GET'])
+def reviewless_appointments():
+    """
+    Get customer appointments that don't have reviews yet
+    ---
+    tags:
+      - Appointments
+    parameters:
+      - name: customer_id
+        in: query
+        required: true
+        type: integer
+        description: Customer ID
+    responses:
+      200:
+        description: Appointments without reviews returned
+      400:
+        description: Missing customer ID
+    """
+    customer_id = request.args.get('customer_id')
+
+    if not customer_id:
+        return jsonify({'error': 'Missing customer_id parameter'}), 400
+    
+    try:
+        customer_id = int(customer_id)
+    except ValueError:
+        return jsonify({'error': 'customer_id must be an integer'}), 400
+    
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor(DictCursor)
+    
+    try:
+        # Simple query: Only appointments without reviews
+        cursor.execute("""
+            SELECT 
+                a.appointment_id, 
+                a.appointment_date, 
+                a.start_time,
+                a.end_time,
+                a.status,
+                a.notes,
+                s.salon_id,
+                s.name AS salon_name,
+                sv.service_id,
+                sv.name AS service_name,
+                sv.price AS service_price,
+                sv.duration_minutes AS service_duration,
+                e.employee_id,
+                CONCAT(e.first_name, ' ', e.last_name) AS employee_name
+            FROM appointments a
+            JOIN salons s ON a.salon_id = s.salon_id
+            JOIN services sv ON a.service_id = sv.service_id
+            JOIN employees e ON a.employee_id = e.employee_id
+            LEFT JOIN reviews r ON a.appointment_id = r.appointment_id
+            WHERE a.customer_id = %s
+              AND r.review_id IS NULL
+              AND a.status = 'completed'
+            ORDER BY a.appointment_date DESC, a.start_time DESC
+        """, (customer_id,))
+        
+        appointments = cursor.fetchall()
+
+        # Simple formatting
+        for appointment in appointments:
+            for key in ['appointment_date', 'start_time', 'end_time']:
+                if key in appointment and appointment[key] is not None:
+                    appointment[key] = str(appointment[key])
+            
+            appointment['time_slot'] = f"{appointment['start_time']} - {appointment['end_time']}"
+        
+        return jsonify({
+            'customer_id': customer_id,
+            'appointments': appointments,
+            'count': len(appointments)
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+
 
 # to view how many appointments are on a specific day (calendar view)
 @appointments_bp.route('/salon/<int:salon_id>/appointments/calendar', methods=['GET'])
