@@ -1,5 +1,6 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, session
 from datetime import datetime
+from utils.logerror import log_error
 
 promotions_bp = Blueprint('promotions', __name__)
 
@@ -59,6 +60,7 @@ def get_promotions(salon_id):
             })
         return jsonify({'salon_id': salon_id, 'active_promotions': result}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': f'Error fetching promotions: {str(e)}'}), 500
 
 #view all promotions (inactive or not)
@@ -118,6 +120,7 @@ responses:
         return jsonify({'salon_id': salon_id, 'promotions': result}), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': f'Error fetching all promotions: {str(e)}'}), 500
 
 #create a new promotion
@@ -199,6 +202,7 @@ responses:
 
         return jsonify({'message': 'Promotion created successfully', 'promo_id': promo_id}), 201
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': f'Error creating promotion: {str(e)}'}), 500
     
@@ -285,7 +289,7 @@ responses:
             return jsonify({'error': 'Promotion not found'}), 404
         return jsonify({'message': 'Promotion updated successfully'}), 200
     except Exception as e:
-        print("Error updating promotion:", e)
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
 
 #disable a promotion
@@ -321,6 +325,7 @@ responses:
         cursor.close()
         return jsonify({'message': 'Promotion disabled successfully'}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': f'Error disabling promotion: {str(e)}'}), 500
 
@@ -355,4 +360,5 @@ def enable_promotion(promo_id):
         cursor.close()
         return jsonify({'message': 'Promotion enabled successfully', 'promo_id': promo_id}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': f'Error enabling promotion: {str(e)}'}), 500

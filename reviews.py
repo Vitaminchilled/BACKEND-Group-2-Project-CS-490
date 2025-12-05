@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, current_app, session
 import json
 from datetime import datetime
+from utils.logerror import log_error
 
 reviews_bp = Blueprint('reviews', __name__)
 
@@ -125,6 +126,7 @@ responses:
         cursor.close()
         return jsonify({'reviews': result, "review_count": review_count}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch reviews', 'details': str(e)}), 500
 
 @reviews_bp.route('/salon/<int:salon_id>/dashboard/reviews', methods=['GET'])
@@ -161,6 +163,7 @@ responses:
         cursor.close()
         return jsonify({'reviews': reviews}), 201
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch reviews', 'details': str(e)}), 500
 
 def generate_iter_pages(current_page, total_pages, left_edge=2, right_edge=2, left_current=2, right_current=2):
@@ -309,6 +312,7 @@ def get_paginated_reviews(salon_id):
             'iter_pages': iter_pages
         }), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch reviews', 'details': str(e)}), 500
     finally:
         cursor.close()
@@ -388,6 +392,7 @@ def get_children_replies(salon_id, review_id):
             'reply_count': reply_count #all replies but this query returns one level of replies
         }), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch replies', 'details': str(e)}), 500
     finally:
         cursor.close()
@@ -481,6 +486,7 @@ responses:
         cursor.close()
         return jsonify({'message': 'Review posted successfully'}), 201
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to post review'}), 500
 
 
@@ -541,6 +547,7 @@ responses:
         cursor.close()
         return jsonify({'message': 'Reply posted successfully'}), 201
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to post reply'}), 500
 
 @reviews_bp.route('/reviews/<int:review_id>', methods=['DELETE'])
@@ -599,6 +606,7 @@ responses:
         cursor.close()
         return jsonify({'message': 'Review deleted successfully'}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to delete review'}), 500
 
 @reviews_bp.route('/reviews/reply/<int:reply_id>', methods=['DELETE'])
@@ -653,5 +661,6 @@ responses:
         cursor.close()
         return jsonify({'message': 'Reply deleted successfully'}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to delete reply'}), 500
     

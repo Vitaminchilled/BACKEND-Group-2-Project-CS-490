@@ -4,8 +4,8 @@ from flask_cors import CORS
 from flask_mail import Mail
 from apscheduler.schedulers.background import BackgroundScheduler
 from flasgger import Swagger
-from datetime import datetime, timedelta
-from emails import send_email
+from datetime import datetime, timedelta, timezone
+from utils.emails import send_email
 
 app = Flask(__name__)
 CORS(app)
@@ -30,6 +30,7 @@ app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
 mysql = MySQL(app)
 mail = Mail(app)
 app.config['MYSQL'] = mysql
+SERVER_START_TIME = datetime.now(timezone.utc)
 
 swagger_template = {
     "swagger": "2.0",
@@ -60,6 +61,7 @@ from cart import cart_bp
 from products import products_bp
 from user_dashboard import user_dashboard_bp
 from users import users_bp
+from analytics import analytics_bp
 
 app.register_blueprint(login_bp)
 app.register_blueprint(register_bp)
@@ -78,6 +80,7 @@ app.register_blueprint(cart_bp)
 app.register_blueprint(products_bp)
 app.register_blueprint(user_dashboard_bp)
 app.register_blueprint(users_bp)
+app.register_blueprint(analytics_bp)
 
 scheduled_appointments = set()
 #send customer's email updates for appointments 24 hours before the appointment 

@@ -1,6 +1,7 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, session
 from datetime import datetime, timedelta, time as dt_time, date
 from MySQLdb.cursors import DictCursor
+from utils.logerror import log_error
 
 user_dashboard_bp = Blueprint('user_dashboard_bp', __name__)
 
@@ -108,6 +109,7 @@ def customer_dashboard():
         return jsonify(convert_mysql_objects(response_data)), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
 
     finally:
@@ -201,6 +203,7 @@ def search_salons():
         })), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -230,6 +233,7 @@ def get_available_master_tags():
         })), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -339,6 +343,7 @@ def get_salon_details(salon_id):
         return jsonify(convert_mysql_objects(salon)), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -374,6 +379,7 @@ def favorite_salon():
         return jsonify({'message': 'Salon favorited successfully'}), 201
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
 
@@ -403,6 +409,7 @@ def unfavorite_salon():
         return jsonify({'message': 'Salon unfavorited successfully'}), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
 
@@ -461,5 +468,6 @@ def get_favorited_salons():
             'count': len(salons)
         })), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
     

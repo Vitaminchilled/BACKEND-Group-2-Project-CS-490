@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify, session
 from werkzeug.security import generate_password_hash
 from datetime import datetime
 from flask import current_app
+from utils.logerror import log_error
 
 register_bp = Blueprint('register', __name__)
 
@@ -156,6 +157,7 @@ responses:
         return jsonify({'message': 'User registered successfully'}), 201
     
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
@@ -352,6 +354,7 @@ responses:
         return jsonify({'message': 'Salon registered successfully'}), 201
     
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:

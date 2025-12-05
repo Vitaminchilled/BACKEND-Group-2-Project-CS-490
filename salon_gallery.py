@@ -1,6 +1,7 @@
 import os
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, session
 from datetime import datetime
+from utils.logerror import log_error
 
 salon_gallery_bp = Blueprint('salon_gallery', __name__)
 
@@ -56,6 +57,7 @@ responses:
         
         return jsonify({'salon_id': salon_id, 'gallery': gallery}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         cursor.close()
         return jsonify({'error': 'The salon galley could not be displayed'}), 500
 
@@ -100,6 +102,7 @@ responses:
             'last_modified': image[4].strftime('%Y-%m-%d %H:%M:%S') if image[4] else None
         }), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         cursor.close()
         return jsonify({'error': 'No profile picture to be displayed'}), 500
 
@@ -148,6 +151,7 @@ responses:
             'last_modified': image[5].strftime('%Y-%m-%d %H:%M:%S') if image[5] else None
         }), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         cursor.close()
         return jsonify({'error': 'No employee photo to be displayed'}), 500
     
@@ -196,6 +200,7 @@ responses:
             'last_modified': image[5].strftime('%Y-%m-%d %H:%M:%S') if image[5] else None
         }), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         cursor.close()
         return jsonify({'error': 'No product photo to be displayed'}), 500
 
@@ -313,6 +318,7 @@ responses:
         }), 201  
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': f'Failed to upload image: {str(e)}'}), 500
 
 @salon_gallery_bp.route('/salon/gallery/<int:gallery_id>/update', methods=['PUT'])
@@ -387,6 +393,7 @@ responses:
         cursor.close()
         return jsonify({'message': 'Image updated successfully'}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': f'Failed to update image: {str(e)}'}), 500
     
 
@@ -435,4 +442,5 @@ responses:
         return jsonify({'message': 'Image deleted successfully', 'gallery_id': gallery_id}), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': f'Failed to delete image: {str(e)}'}), 500
