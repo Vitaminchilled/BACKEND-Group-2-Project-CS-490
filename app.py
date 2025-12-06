@@ -1,3 +1,4 @@
+import os
 from flask import Flask
 from flask_mysqldb import MySQL
 from flask_cors import CORS
@@ -13,10 +14,10 @@ CORS(app)
 app.secret_key = 'G76D-U89V-576V-7BT6'
 
 app.config.update(
-    MYSQL_HOST='localhost',
-    MYSQL_USER='root',
-    MYSQL_PASSWORD='5283',
-    MYSQL_DB='salon'
+    MYSQL_HOST=os.getenv("MYSQL_HOST"),
+    MYSQL_USER=os.getenv("MYSQL_USER"),
+    MYSQL_PASSWORD=os.getenv("MYSQL_PASSWORD"),
+    MYSQL_DB=os.getenv("MYSQL_DB")
 )
 
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
