@@ -6,6 +6,7 @@ charset-normalizer==3.4.4
 click==8.3.0
 colorama==0.4.6
 flasgger==0.9.7.1
+boto3==1.35.0
 Flask==3.1.2
 gunicorn==21.2.0
 flask-cors==6.0.1
@@ -37,4 +38,5 @@ tzdata==2025.2
 tzlocal==5.3.1
 urllib3==2.5.0
 Werkzeug==3.1.3
+
 
