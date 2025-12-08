@@ -14,6 +14,113 @@ def timedelta_to_time(td):
     seconds = total_seconds % 60
     return dt_time(hour=hours, minute=minutes, second=seconds)
 
+# IMAGE UPLOADER TESTER
+@appointments_bp.route('/appointments/test-upload', methods=['POST'])
+def test_s3_upload():
+    """
+    Test S3 image upload - accepts JSON or Form Data
+    ---
+    tags:
+      - Appointments
+    consumes:
+      - application/json
+      - multipart/form-data
+    parameters:
+      - in: formData
+        name: test_image
+        type: file
+        required: false
+        description: Test image file (JPEG/PNG)
+      - in: body
+        name: body
+        required: false
+        schema:
+          type: object
+          properties:
+            test_image_url:
+              type: string
+              description: URL of test image
+              example: "https://example.com/test.jpg"
+            test_text:
+              type: string
+              description: Optional test message
+              example: "Testing S3 upload"
+    responses:
+      200:
+        description: Upload test successful
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+            image_url:
+              type: string
+            bucket_info:
+              type: object
+      400:
+        description: No image provided
+      500:
+        description: Upload failed
+    """
+    try:
+        image_url = None
+        upload_method = None
+        
+        # Check for file upload (form-data)
+        if 'test_image' in request.files:
+            file_upload = request.files['test_image']
+            if file_upload.filename != '':
+                upload_method = "file upload"
+                image_url = upload_image_to_s3(file_upload)
+        
+        # Check for JSON with URL
+        elif request.is_json:
+            data = request.get_json()
+            test_image_url = data.get('test_image_url')
+            test_text = data.get('test_text', 'No test text provided')
+            
+            if test_image_url:
+                upload_method = "URL upload"
+                image_url = upload_image_to_s3(test_image_url)
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': 'No test_image_url provided in JSON',
+                    'test_text_received': test_text
+                }), 400
+        
+        # No image provided
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'No image provided. Send either: 1) Form-data with test_image file, or 2) JSON with test_image_url'
+            }), 400
+        
+        # Get bucket info from current_app config
+        bucket = current_app.config.get("AWS_S3_BUCKET", "Not configured")
+        region = current_app.config.get("AWS_REGION", "Not configured")
+        
+        return jsonify({
+            'success': True,
+            'message': f'S3 upload test successful via {upload_method}',
+            'image_url': image_url,
+            'bucket_info': {
+                'bucket': bucket,
+                'region': region,
+                'upload_method': upload_method
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Upload failed: {str(e)}',
+            'error_type': type(e).__name__
+        }), 500
+
+
 # here is my appointments booking, when calling this function (appointments/book), it'll need the customer, salon and service id
 # as well as the appointment dates and notes, this can prolly be changed as we move forward thou.
 # add extra function to add image to appointment
