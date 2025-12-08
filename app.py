@@ -20,7 +20,7 @@ app.config.update(
     MYSQL_PASSWORD=os.getenv("MYSQL_PASSWORD"),
     MYSQL_DB=os.getenv("MYSQL_DB")
 )
-
+'''
 s3 = boto3.client(
     "s3",
     aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
@@ -29,6 +29,12 @@ s3 = boto3.client(
 )
 
 S3_BUCKET = os.getenv("AWS_S3_BUCKET")
+'''
+
+app.config["AWS_ACCESS_KEY_ID"] = os.getenv("AWS_ACCESS_KEY_ID")
+app.config["AWS_SECRET_ACCESS_KEY"] = os.getenv("AWS_SECRET_ACCESS_KEY")
+app.config["AWS_REGION"] = os.getenv("AWS_REGION")
+app.config["AWS_S3_BUCKET"] = os.getenv("AWS_S3_BUCKET")
 
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
