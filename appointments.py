@@ -14,6 +14,60 @@ def timedelta_to_time(td):
     seconds = total_seconds % 60
     return dt_time(hour=hours, minute=minutes, second=seconds)
 
+#ANOTHER TESTER
+@appointments_bp.route('/appointments/upload-test-basic', methods=['POST'])
+def upload_test_basic():
+    """
+    Basic S3 upload test - ONLY accepts file uploads
+    ---
+    tags:
+      - Appointments
+    """
+    # Check if we have any files at all
+    if not request.files:
+        return jsonify({
+            'error': 'No files in request. Use form-data with a file.',
+            'content_type': request.content_type,
+            'has_files': bool(request.files)
+        }), 400
+    
+    # Get the first file (whatever key it has)
+    file_key = list(request.files.keys())[0]
+    file = request.files[file_key]
+    
+    if file.filename == '':
+        return jsonify({'error': 'Empty filename'}), 400
+    
+    try:
+        # Test if we can read the file
+        file_bytes = file.read()
+        file_size = len(file_bytes)
+        
+        # Reset file pointer for upload
+        file.seek(0)
+        
+        # Upload to S3
+        image_url = upload_image_to_s3(file)
+        
+        return jsonify({
+            'success': True,
+            'message': 'S3 upload successful!',
+            'image_url': image_url,
+            'file_info': {
+                'filename': file.filename,
+                'content_type': file.content_type,
+                'size_bytes': file_size,
+                'key_in_request': file_key
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'details': f'Error type: {type(e).__name__}'
+        }), 500
+
 # IMAGE UPLOADER TESTER
 @appointments_bp.route('/appointments/test-upload', methods=['POST'])
 def test_s3_upload():
