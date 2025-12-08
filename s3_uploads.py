@@ -48,7 +48,7 @@ def upload_image_to_s3(file_or_url):
     )
     '''
 
-        try:
+    try:
         # Try with ACL first (for older buckets)
         s3.put_object(
             Bucket=bucket,
