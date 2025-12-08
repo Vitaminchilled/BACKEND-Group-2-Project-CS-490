@@ -2,6 +2,7 @@ import boto3
 import requests
 import mimetypes
 import uuid
+import os
 from flask import current_app
 
 def upload_image_to_s3(file_or_url):
