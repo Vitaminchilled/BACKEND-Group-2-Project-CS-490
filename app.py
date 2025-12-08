@@ -6,6 +6,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from flasgger import Swagger
 from datetime import datetime, timedelta, timezone
 from utils.emails import send_email
+from start_time import SERVER_START_TIME
 
 app = Flask(__name__)
 CORS(app)
@@ -15,7 +16,7 @@ app.secret_key = 'G76D-U89V-576V-7BT6'
 app.config.update(
     MYSQL_HOST='localhost',
     MYSQL_USER='root',
-    MYSQL_PASSWORD='5283',
+    MYSQL_PASSWORD='B3njamin178',
     MYSQL_DB='salon'
 )
 
@@ -30,7 +31,6 @@ app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
 mysql = MySQL(app)
 mail = Mail(app)
 app.config['MYSQL'] = mysql
-SERVER_START_TIME = datetime.now(timezone.utc)
 
 swagger_template = {
     "swagger": "2.0",
