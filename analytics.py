@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request, current_app
 from datetime import datetime, timezone
-from app import SERVER_START_TIME
+from start_time import SERVER_START_TIME
 
 analytics_bp = Blueprint('analytics', __name__)
 
