@@ -18,10 +18,137 @@ def timedelta_to_time(td):
 @appointments_bp.route('/appointments/upload-test-basic', methods=['POST'])
 def upload_test_basic():
     """
-    Basic S3 upload test - ONLY accepts file uploads
+    Test S3 Image Upload
     ---
     tags:
       - Appointments
+      - Testing
+    summary: Test if AWS S3 bucket is working correctly
+    description: |
+      Upload an image file to test if your AWS S3 configuration is working.
+      
+      This endpoint accepts multipart/form-data with an image file.
+      The file will be uploaded to your configured S3 bucket and a public URL will be returned.
+      
+      **Use this to verify:**
+      1. AWS credentials are correct
+      2. S3 bucket has proper permissions
+      3. Image upload functionality works
+      
+      **Note:** This is a test endpoint and doesn't save anything to the database.
+    consumes:
+      - multipart/form-data
+    produces:
+      - application/json
+    parameters:
+      - in: formData
+        name: image_file
+        type: file
+        required: true
+        description: |
+          Any image file (JPEG, PNG, GIF, etc.) to test upload functionality.
+          
+          **Supported file keys (any of these will work):**
+          - `image_file` (recommended)
+          - `file`
+          - `test_image`
+          - Any other key name
+          
+          **Example curl command:**
+          ```bash
+          curl -X POST "http://your-api.com/appointments/upload-test-basic" \
+            -F "image_file=@test.jpg"
+          ```
+    responses:
+      200:
+        description: Image uploaded successfully to S3
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "S3 upload successful!"
+            image_url:
+              type: string
+              example: "https://your-bucket.s3.amazonaws.com/uploads/550e8400-e29b-41d4-a716-446655440000.jpg"
+              description: Public URL of the uploaded image
+            file_info:
+              type: object
+              properties:
+                filename:
+                  type: string
+                  example: "test.jpg"
+                content_type:
+                  type: string
+                  example: "image/jpeg"
+                size_bytes:
+                  type: integer
+                  example: 102457
+                key_in_request:
+                  type: string
+                  example: "image_file"
+                  description: The form field name used in the request
+        examples:
+          application/json:
+            {
+              "success": true,
+              "message": "S3 upload successful!",
+              "image_url": "https://test-bucket.s3.amazonaws.com/uploads/123e4567-e89b-12d3-a456-426614174000.jpg",
+              "file_info": {
+                "filename": "hairstyle.jpg",
+                "content_type": "image/jpeg",
+                "size_bytes": 24567,
+                "key_in_request": "image_file"
+              }
+            }
+      400:
+        description: Bad request - no file provided
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              example: "No files in request. Use form-data with a file."
+            content_type:
+              type: string
+              example: "application/json"
+              description: The Content-Type header sent in the request
+            has_files:
+              type: boolean
+              example: false
+        examples:
+          application/json:
+            {
+              "error": "No files in request. Use form-data with a file.",
+              "content_type": "application/json",
+              "has_files": false
+            }
+      500:
+        description: Server error - upload failed
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            error:
+              type: string
+              example: "Access Denied. Check AWS credentials."
+            details:
+              type: string
+              example: "Error type: ClientError"
+        examples:
+          application/json:
+            success: false
+            error: "The security token included in the request is invalid"
+            details: "Error type: ClientError"
+    x-swagger-router-controller: appointments
+    externalDocs:
+      description: Learn more about AWS S3
+      url: https://aws.amazon.com/s3/
     """
     # Check if we have any files at all
     if not request.files:
