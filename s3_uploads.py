@@ -38,7 +38,7 @@ def upload_image_to_s3(file_or_url):
     # Build filename
     extension = mimetypes.guess_extension(content_type) or ".jpg"
     filename = f"uploads/{uuid.uuid4()}{extension}"
-
+    '''
     s3.put_object(
         Bucket=bucket,
         Key=filename,
@@ -46,5 +46,28 @@ def upload_image_to_s3(file_or_url):
         ContentType=content_type,
         ACL="public-read"
     )
+    '''
 
+        try:
+        # Try with ACL first (for older buckets)
+        s3.put_object(
+            Bucket=bucket,
+            Key=filename,
+            Body=file_bytes,
+            ContentType=content_type,
+            ACL="public-read"
+        )
+    except Exception as acl_error:
+        if "AccessControlListNotSupported" in str(acl_error):
+            # ACLs disabled, upload without ACL
+            s3.put_object(
+                Bucket=bucket,
+                Key=filename,
+                Body=file_bytes,
+                ContentType=content_type
+            )
+        else:
+            # Some other error
+            raise acl_error
+    
     return f"https://{bucket}.s3.amazonaws.com/{filename}"
