@@ -41,7 +41,7 @@ jobs:
 
   deploy-to-render:
     needs: test-backend  # THIS IS KEY - waits for tests
-    if: github.ref == 'refs/heads/main'  # Only deploy main
+    if: github.ref == 'refs/heads/livetest'  # Only deploy main
     runs-on: ubuntu-latest
     
     steps:
