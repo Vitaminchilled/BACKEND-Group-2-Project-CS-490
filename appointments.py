@@ -308,161 +308,85 @@ def test_s3_upload():
 @appointments_bp.route('/appointments/book', methods=['POST'])
 def book_appointment():
     """
-    Book a new appointment with optional reference image
-    ---
+    post:
     tags:
       - Appointments
-    consumes:
-      - application/json
-      - multipart/form-data
-    parameters:
-      - in: formData
-        name: salon_id
-        type: integer
-        required: true
-        description: ID of the salon
-      - in: formData
-        name: employee_id
-        type: integer
-        required: true
-        description: ID of the employee/stylist
-      - in: formData
-        name: customer_id
-        type: integer
-        required: true
-        description: ID of the customer
-      - in: formData
-        name: service_id
-        type: integer
-        required: true
-        description: ID of the service
-      - in: formData
-        name: appointment_date
-        type: string
-        format: date
-        required: true
-        description: Date of appointment (YYYY-MM-DD)
-      - in: formData
-        name: start_time
-        type: string
-        format: time
-        required: true
-        description: Start time (HH:MM:SS)
-      - in: formData
-        name: notes
-        type: string
-        required: false
-        description: Additional notes for the appointment
-      - in: formData
-        name: reference_image
-        type: file
-        required: false
-        description: Reference image file (JPEG/PNG)
-      - in: body
-        name: body
-        description: Alternative JSON input (use instead of form-data)
-        schema:
-          type: object
-          required:
-            - salon_id
-            - employee_id
-            - customer_id
-            - service_id
-            - appointment_date
-            - start_time
-          properties:
-            salon_id:
-              type: integer
-              example: 1
-            employee_id:
-              type: integer
-              example: 3
-            customer_id:
-              type: integer
-              example: 5
-            service_id:
-              type: integer
-              example: 2
-            appointment_date:
-              type: string
-              format: date
-              example: "2024-12-25"
-            start_time:
-              type: string
-              format: time
-              example: "14:30:00"
-            notes:
-              type: string
-              example: "I want layered hair like the reference image"
-            reference_image_url:
-              type: string
-              description: URL of reference image (use this OR reference_image file)
-              example: "https://example.com/hairstyle.jpg"
+    summary: Book a new appointment
+    description: >
+      Books an appointment for a customer.  
+      Accepts either an uploaded image file (`image`) or a direct image URL (`image_url`).
+      The backend will upload the file to AWS S3 and store the returned S3 URL in the
+      appointment's `image_url` column.
+    requestBody:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            type: object
+            properties:
+              service_id:
+                type: integer
+                example: 12
+              employee_id:
+                type: integer
+                example: 5
+              customer_name:
+                type: string
+                example: John Doe
+              customer_email:
+                type: string
+                example: john@example.com
+              appointment_date:
+                type: string
+                format: date
+                example: 2025-04-20
+              appointment_time:
+                type: string
+                example: "14:30"
+              notes:
+                type: string
+                example: Customer prefers quiet room.
+              image:
+                type: string
+                format: binary
+                description: Optional uploaded image file.
+              image_url:
+                type: string
+                example: "https://example.com/sample.jpg"
+                description: Optional direct image URL.
+          encoding:
+            image:
+              contentType: image/png, image/jpeg
     responses:
-      201:
-        description: Appointment booked successfully
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: "Appointment booked successfully"
-            appointment_id:
-              type: integer
-              example: 123
-            appointment_date:
-              type: string
-              example: "2024-12-25"
-            start_time:
-              type: string
-              example: "14:30:00"
-            end_time:
-              type: string
-              example: "15:30:00"
-            employee_id:
-              type: integer
-              example: 3
-            reference_image_url:
-              type: string
-              example: "https://your-bucket.s3.amazonaws.com/uploads/uuid.jpg"
+      200:
+        description: Appointment successfully created.
       400:
-        description: Missing or invalid fields
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-              example: "Missing required fields"
+        description: Invalid request.
       500:
-        description: Internal server error
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-              example: "Database connection failed"
+        description: Server error.
     """
 
     if request.is_json:
         data = request.get_json()
-        reference_image_url = data.get('reference_image_url')
         file_upload = None
+        reference_image_url = data.get("reference_image_url")
     else:
         data = request.form.to_dict()
-        if 'reference_image' in request.files:
-            file_upload = request.files['reference_image']
-            if file_upload.filename == '':
-                file_upload = None
-        else:
-            file_upload = None
-        reference_image_url = data.get('reference_image_url')
 
+        # Handle uploaded file
+        file_upload = request.files.get("reference_image")
+        if file_upload and file_upload.filename.strip() == "":
+            file_upload = None
+
+        reference_image_url = data.get("reference_image_url")
+
+    # Required fields
     salon_id = data.get('salon_id')
     employee_id = data.get('employee_id')
     customer_id = data.get('customer_id')
     service_id = data.get('service_id')
-    appointment_date = data.get('appointment_date')     # has to be in this format: YYYY-MM-DD
-    start_time = data.get('start_time')                 # time has to be in this format: HH:MM:SS
+    appointment_date = data.get('appointment_date')  # YYYY-MM-DD
+    start_time = data.get('start_time')              # HH:MM:SS
     notes = data.get('notes', "")
 
     if not all([salon_id, employee_id, customer_id, service_id, appointment_date, start_time]):
@@ -474,11 +398,17 @@ def book_appointment():
     reference_image_saved_url = None
 
     try:
+        # -------------------------------------------------------
+        #   1) HANDLE IMAGE UPLOAD OR IMAGE URL
+        # -------------------------------------------------------
         if file_upload:
-            reference_image_saved_url = upload_image_to_s3(file_upload)
+            reference_image_saved_url = S3Uploader.upload_image_to_s3(file_upload)
         elif reference_image_url:
-            reference_image_saved_url = upload_image_to_s3(reference_image_url)
+            reference_image_saved_url = S3Uploader.upload_image_to_s3(reference_image_url)
 
+        # -------------------------------------------------------
+        #   2) GET SERVICE DURATION
+        # -------------------------------------------------------
         cursor.execute("SELECT duration_minutes FROM services WHERE service_id = %s", (service_id,))
         service = cursor.fetchone()
         if not service:
@@ -486,35 +416,35 @@ def book_appointment():
 
         duration = timedelta(minutes=service['duration_minutes'])
 
-        # Get start date
+        # Build start datetime
         try:
             start_dt = datetime.strptime(f"{appointment_date} {start_time}", "%Y-%m-%d %H:%M:%S")
         except ValueError:
             return jsonify({'error': 'Invalid date or time format'}), 400
 
-        # Calc end date
         end_dt = start_dt + duration
         end_time_str = end_dt.strftime("%H:%M:%S")
 
-        # get the day name (ex. monday, tuesday, wednesday, etc)
+        # -------------------------------------------------------
+        #   3) VALIDATE EMPLOYEE SCHEDULE
+        # -------------------------------------------------------
         day_name = start_dt.strftime("%A")
 
-        # checks employee schedule, prevent overlap/employee not avaliable
         cursor.execute("""
             SELECT start_time, end_time 
             FROM time_slots
             WHERE employee_id = %s AND salon_id = %s
               AND day = %s AND is_available = TRUE
         """, (employee_id, salon_id, day_name))
-        schedule = cursor.fetchone()
 
+        schedule = cursor.fetchone()
         if not schedule:
             return jsonify({'error': f'Employee is not scheduled to work on {day_name}'}), 400
 
-        # IMPORTANT: Convert schedule times to datetime.time 
         schedule_start_time = schedule['start_time']
         schedule_end_time = schedule['end_time']
 
+        # Convert timedelta → time if needed
         if isinstance(schedule_start_time, timedelta):
             schedule_start_time = timedelta_to_time(schedule_start_time)
         if isinstance(schedule_end_time, timedelta):
@@ -523,13 +453,16 @@ def book_appointment():
         schedule_start_dt = datetime.combine(start_dt.date(), schedule_start_time)
         schedule_end_dt = datetime.combine(start_dt.date(), schedule_end_time)
 
+        # Validate inside schedule
         if not (schedule_start_dt <= start_dt < schedule_end_dt):
             return jsonify({'error': 'Requested time is outside working hours'}), 400
 
         if not (start_dt < end_dt <= schedule_end_dt):
             return jsonify({'error': 'Service duration extends beyond working hours'}), 400
 
-        # Make sure no overlapping
+        # -------------------------------------------------------
+        #   4) CHECK APPOINTMENT OVERLAP
+        # -------------------------------------------------------
         cursor.execute("""
             SELECT 1 FROM appointments
             WHERE employee_id = %s
@@ -542,76 +475,64 @@ def book_appointment():
                   )
             LIMIT 1
         """, (employee_id, salon_id, appointment_date, end_time_str, start_time, start_time, end_time_str))
-        overlap = cursor.fetchone()
 
+        overlap = cursor.fetchone()
         if overlap:
             return jsonify({'error': 'Time slot overlaps with another appointment'}), 400
 
-        # inserting into time slot, idk if this is neccesary, 
-        # might end up removing time_slot table from database down the line...
-        # cursor.execute("""
-        #     INSERT INTO time_slots (
-        #         salon_id, employee_id, day, start_time, end_time, is_available
-        #     ) VALUES (%s, %s, %s, %s, %s, FALSE)
-        # """, (salon_id, employee_id, appointment_date, start_time, end_time_str, 1))
-        # time_slot_id = cursor.lastrowid
-
-        # time_slot_id = time_slot_id['slot_id']
-
+        # -------------------------------------------------------
+        #   5) FIND MATCHING TIME SLOT
+        # -------------------------------------------------------
         cursor.execute("""
             SELECT slot_id
             FROM time_slots
-            WHERE salon_id = %s AND employee_id = %s AND day = %s AND start_time <= %s AND end_time >= %s AND is_available = TRUE
+            WHERE salon_id = %s AND employee_id = %s AND day = %s
+              AND start_time <= %s AND end_time >= %s
+              AND is_available = TRUE
             LIMIT 1
-        """, (employee_id, salon_id, day_name, start_time, end_time_str))
+        """, (salon_id, employee_id, day_name, start_time, end_time_str))
 
-        time_slot_id = cursor.fetchone()
-
-        if not time_slot_id:
+        ts = cursor.fetchone()
+        if not ts:
             return jsonify({'error': 'No matching time slot found'}), 400
 
-        time_slot_id = time_slot_id['slot_id']
+        time_slot_id = ts['slot_id']
 
-        # Insert into appoint
+        # -------------------------------------------------------
+        #   6) INSERT APPOINTMENT + IMAGE URL
+        # -------------------------------------------------------
         now = datetime.now()
+
         cursor.execute("""
             INSERT INTO appointments (
                 customer_id, salon_id, employee_id, service_id, time_slot_id,
-                appointment_date, start_time, end_time, notes, image_url
+                appointment_date, start_time, end_time, notes, image_url,
                 status, created_at, last_modified
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'booked',%s,%s)
         """, (customer_id, salon_id, employee_id, service_id, time_slot_id,
-              appointment_date, start_time, end_time_str, notes, reference_image_saved_url, now, now))
-        
+              appointment_date, start_time, end_time_str, notes, reference_image_saved_url,
+              now, now))
+
         appointment_id = cursor.lastrowid
         mysql.connection.commit()
 
-        '''
-        return jsonify({
-            'message': 'Appointment booked successfully',
-            'appointment_date': appointment_date,
-            'start_time': start_time,
-            'end_time': end_time_str,
-            'employee_id': employee_id
-        }), 201'''
-
-        response_data = {
-            'message': 'Appointment booked successfully',
-            'appointment_date': appointment_date,
-            'start_time': start_time,
-            'end_time': end_time_str,
-            'employee_id': employee_id,
-            'appointment_id': appointment_id
+        response = {
+            "message": "Appointment booked successfully",
+            "appointment_id": appointment_id,
+            "appointment_date": appointment_date,
+            "start_time": start_time,
+            "end_time": end_time_str,
+            "employee_id": employee_id
         }
-        
-        if reference_image_saved_url:
-            response_data['reference_image_url'] = reference_image_saved_url
 
-        return jsonify(response_data), 201
+        if reference_image_saved_url:
+            response["reference_image_url"] = reference_image_saved_url
+
+        return jsonify(response), 201
 
     except Exception as e:
         mysql.connection.rollback()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
     finally:
         cursor.close()
