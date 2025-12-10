@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, current_app
 from datetime import datetime, timedelta, time as dt_time, date
 from MySQLdb.cursors import DictCursor
-from s3_uploads import upload_image_to_s3
+from s3_uploads import S3Uploader
 
 appointments_bp = Blueprint('appointments_bp', __name__)
 
