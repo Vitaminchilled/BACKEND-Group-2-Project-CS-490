@@ -307,7 +307,7 @@ def test_s3_upload():
 # add extra function to add image to appointment
 @appointments_bp.route('/appointments/book', methods=['POST'])
 def book_appointment():
-    """
+        """
     Book Appointment
     ---
     tags:
