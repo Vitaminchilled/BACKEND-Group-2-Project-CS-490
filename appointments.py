@@ -316,170 +316,136 @@ def book_appointment():
     description: |
       Create a new appointment for a customer.
     
-      This endpoint accepts **multipart/form-data** and allows the frontend to send:
-      
-      - An uploaded image file (`image`, `image_file`, `file`, etc.)
-      - OR a direct `image_url` string
-      
-      If a file is uploaded, it will be uploaded to your AWS S3 bucket, and the resulting
-      public S3 link will be saved in the appointment's `image_url` column.
+      This endpoint accepts **multipart/form-data** or **application/json**:
+      - For multipart/form-data: include form fields and optionally upload a file (key `reference_image` or any file key).
+      - For JSON: send the required fields as JSON and optionally include `reference_image_url`.
     
-      **This enables:**
-      1. Customers to attach a reference photo for their appointment
-      2. Salon staff to store images directly in AWS
-      3. Automatic replacement of older images when edited
+      If a file is uploaded it will be uploaded to your configured AWS S3 bucket and the returned
+      S3 public URL will be saved in the appointment's `image_url` column.
     
     consumes:
       - multipart/form-data
+      - application/json
     produces:
       - application/json
     
     parameters:
       - in: formData
-        name: service_id
+        name: salon_id
         type: integer
         required: true
-        example: 12
-        description: ID of the service being booked.
+        description: ID of the salon where the appointment will take place.
+        example: 1
       - in: formData
         name: employee_id
         type: integer
         required: true
+        description: ID of the employee/stylist.
+        example: 3
+      - in: formData
+        name: customer_id
+        type: integer
+        required: true
+        description: ID of the customer (user_id).
         example: 5
-        description: ID of the employee performing the service.
       - in: formData
-        name: customer_name
-        type: string
+        name: service_id
+        type: integer
         required: true
-        example: John Doe
-      - in: formData
-        name: customer_email
-        type: string
-        required: true
-        example: john@example.com
+        description: ID of the service being booked.
+        example: 2
       - in: formData
         name: appointment_date
         type: string
         format: date
         required: true
-        example: 2025-04-20
+        description: Date of appointment (YYYY-MM-DD).
+        example: "2025-04-20"
       - in: formData
-        name: appointment_time
+        name: start_time
         type: string
+        format: time
         required: true
-        example: "14:30"
+        description: Start time of the appointment (HH:MM:SS).
+        example: "14:30:00"
       - in: formData
         name: notes
         type: string
         required: false
-        example: Customer prefers a quiet room.
+        description: Optional appointment notes.
+        example: "I want layered hair like the reference image"
       - in: formData
-        name: image
+        name: reference_image
         type: file
         required: false
         description: |
-          Optional uploaded image file (JPEG, PNG, GIF, etc.)
-    
-          **Supported file keys (any of these will work):**
-          - `image` (recommended)
-          - `image_file`
+          Optional image file (JPEG/PNG/etc.). Supported form keys:
+          - `reference_image` (recommended)
+          - `image`
           - `file`
-          - `appointment_image`
-          - Any other key name is accepted
-    
-          If provided, this file will be uploaded to AWS S3.
+          Any file key will be accepted; backend will detect and upload to S3.
       - in: formData
-        name: image_url
+        name: reference_image_url
         type: string
         required: false
-        example: "https://example.com/sample.jpg"
-        description: |
-          Optional direct image URL.
+        description: Optional direct image URL. Use this instead of uploading a file if preferred.
+        example: "https://example.com/hairstyle.jpg"
     
-          If no file is uploaded, this value will be stored as-is.
+    # Note: The endpoint also accepts the same fields as JSON (application/json) — if sending JSON,
+    # include the same parameter names (e.g., salon_id, employee_id, customer_id, service_id,
+    # appointment_date, start_time, notes, reference_image_url). File uploads require multipart/form-data.
     
     responses:
-      200:
-        description: Appointment successfully created
+      201:
+        description: Appointment booked successfully
         schema:
           type: object
           properties:
-            success:
-              type: boolean
-              example: true
-            appointment_id:
-              type: integer
-              example: 101
             message:
               type: string
-              example: "Appointment booked successfully!"
-            image_url:
+              example: "Appointment booked successfully"
+            appointment_id:
+              type: integer
+              example: 123
+            appointment_date:
               type: string
-              example: "https://your-bucket.s3.amazonaws.com/uploads/550e8400.jpg"
-              description: Public URL of the image (S3 or direct)
-            file_info:
-              type: object
-              nullable: true
-              description: Only returned if a file was uploaded
-              properties:
-                filename:
-                  type: string
-                  example: "reference.jpg"
-                content_type:
-                  type: string
-                  example: "image/jpeg"
-                size_bytes:
-                  type: integer
-                  example: 102457
-                key_in_request:
-                  type: string
-                  example: "image"
-                  description: Form field name used for the upload
-    
-        examples:
-          application/json:
-            success: true
-            appointment_id: 101
-            message: "Appointment booked successfully!"
-            image_url: "https://bucket.s3.amazonaws.com/uploads/123e4567.jpg"
-            file_info:
-              filename: "hairstyle.jpg"
-              content_type: "image/jpeg"
-              size_bytes: 24567
-              key_in_request: "image"
-    
+              example: "2025-04-20"
+            start_time:
+              type: string
+              example: "14:30:00"
+            end_time:
+              type: string
+              example: "15:30:00"
+            employee_id:
+              type: integer
+              example: 3
+            reference_image_url:
+              type: string
+              example: "https://your-bucket.s3.amazonaws.com/uploads/uuid.jpg"
+              description: Public URL of the stored image (S3 or original URL)
       400:
-        description: Bad request - missing fields or invalid data
+        description: Missing or invalid fields
         schema:
           type: object
           properties:
             error:
               type: string
-              example: "Missing required fields: service_id, appointment_time"
-            details:
-              type: string
-              example: "ValidationError"
-    
+              example: "Missing required fields"
       500:
-        description: Server error - AWS or database failure
+        description: Internal server error
         schema:
           type: object
           properties:
-            success:
-              type: boolean
-              example: false
             error:
               type: string
-              example: "Failed to upload image to S3"
-            details:
-              type: string
-              example: "Error type: ClientError"
+              example: "Database connection failed"
     
     x-swagger-router-controller: appointments
     externalDocs:
-      description: AWS S3 Documentation
+      description: AWS S3 documentation
       url: https://aws.amazon.com/s3/
     """
+
 
     if request.is_json:
         data = request.get_json()
