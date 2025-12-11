@@ -8,6 +8,8 @@ from utils.logerror import log_error
 
 login_bp = Blueprint('login', __name__)
 
+#works with login may lose some of the login stuff
+#backend intended so they'll have to look it over
 @login_bp.route('/login', methods=['POST'])
 def login():
     """
