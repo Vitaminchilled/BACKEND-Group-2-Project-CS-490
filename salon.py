@@ -1,6 +1,12 @@
 from flask import Blueprint, request, jsonify, session
 from flask import current_app
 import json
+from utils.emails import send_email
+from flask_mail import Message
+from apscheduler.schedulers.background import BackgroundScheduler
+scheduler = BackgroundScheduler()
+from datetime import datetime, timedelta
+from utils.logerror import log_error
 
 salon_bp = Blueprint('salon', __name__)
 
@@ -11,11 +17,11 @@ def salonData():
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select s.name, sa.average_rating
+            select s.name, s.salon_id, avg(r.rating) as average_rating
             from salons s
-            join salon_analytics sa on sa.salon_id = s.salon_id
-            order by sa.average_rating desc
-            limit 6
+            join reviews r on r.salon_id = s.salon_id
+            group by s.name, s.salon_id
+            limit 6;
         """
         cursor.execute(query)
         rows = cursor.fetchall()
@@ -270,3 +276,38 @@ def get_salon_info(salon_id):
         }), 200
     except Exception as e:
         return jsonify({'error': 'Failed to fetch salon', 'details': str(e)}), 500
+    
+    #send promotional emails to all customers of the salon who favorited the salon or had an appointment there
+@salon_bp.route('/salon/<int:salon_id>/promotions/email', methods=['POST'])
+def send_promotional_email(salon_id):
+    try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+        data = request.get_json()
+        promotional_message = data.get('message', '')
+        if not promotional_message:
+            return jsonify({'error': 'Promotional message is required'}), 400
+
+        query = """
+            select distinct users.email
+            from users
+            join saved_salons on users.user_id = saved_salons.customer_id
+            left join appointments on users.user_id = appointments.customer_id
+            where (saved_salons.salon_id = 1 or appointments.salon_id = 1)
+        """
+        cursor.execute(query, (salon_id, salon_id))
+        customers = cursor.fetchall()
+        cursor.close()
+
+        if not customers:
+            return jsonify({'message': 'No customers found for promotional email'}), 200
+
+        subject = "Exclusive Promotion from Your Favorite Salon!"
+        for customer in customers:
+            customer_email = customer[0]
+            body = f"Dear Customer,\n\n{promotional_message}\n\nBest regards,\nYour Favorite Salon"
+            send_email(to_address=customer_email, subject=subject, body=body)
+        return jsonify({'message': 'Promotional emails sent successfully'}), 200
+    except Exception as e:
+        log_error(str(e), session.get("user_id"))
+        return jsonify({'error': 'Failed to send promotional emails', 'details': str(e)}), 500

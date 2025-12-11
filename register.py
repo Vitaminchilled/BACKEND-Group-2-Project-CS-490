@@ -2,12 +2,43 @@ from flask import Blueprint, request, jsonify, session
 from werkzeug.security import generate_password_hash
 from datetime import datetime
 from flask import current_app
+from utils.logerror import log_error
 
 register_bp = Blueprint('register', __name__)
 
 #registering users (default page)
 @register_bp.route('/register/page', methods=['POST'])
 def register_page():
+    """
+Initial registration page - validate username and password
+---
+tags:
+  - Registration
+consumes:
+  - application/json
+parameters:
+  - in: body
+    name: body
+    required: true
+    schema:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        password_confirm:
+          type: string
+      required:
+        - username
+        - password
+        - password_confirm
+responses:
+  200:
+    description: Username and password validated, proceed to next step
+  400:
+    description: Missing fields, passwords don't match, or username exists
+"""
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
@@ -38,6 +69,48 @@ def register_page():
 #registering customers (next page)
 @register_bp.route('/register/customer', methods=['POST'])
 def register_customer():
+    """
+Complete customer registration
+---
+tags:
+  - Registration
+consumes:
+  - application/json
+parameters:
+  - in: body
+    name: body
+    required: true
+    schema:
+      type: object
+      properties:
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone_number:
+          type: string
+        gender:
+          type: string
+        birth_year:
+          type: integer
+      required:
+        - first_name
+        - last_name
+        - email
+        - phone_number
+        - gender
+        - birth_year
+responses:
+  201:
+    description: Customer registered successfully
+  400:
+    description: Missing fields, session expired, or email/phone already exists
+  500:
+    description: Registration failed
+"""
     username = session.get('register_username')
     password = session.get('register_password') #already hashed 
     if not username or not password:
@@ -84,6 +157,7 @@ def register_customer():
         return jsonify({'message': 'User registered successfully'}), 201
     
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
@@ -92,6 +166,88 @@ def register_customer():
 #register salons (alternative next page)
 @register_bp.route('/register/salon', methods=['POST'])
 def register_salon():
+    """
+Complete salon owner registration
+---
+tags:
+  - Registration
+consumes:
+  - application/json
+parameters:
+  - in: body
+    name: body
+    required: true
+    schema:
+      type: object
+      properties:
+        first_name:
+          type: string
+        last_name:
+          type: string
+        personal_email:
+          type: string
+          format: email
+        personal_email_confirm:
+          type: string
+          format: email
+        birth_year:
+          type: integer
+        phone_number:
+          type: string
+        gender:
+          type: string
+        salon_name:
+          type: string
+        description:
+          type: string
+        salon_email:
+          type: string
+          format: email
+        salon_email_confirm:
+          type: string
+          format: email
+        salon_phone_number:
+          type: string
+        salon_address:
+          type: string
+        salon_city:
+          type: string
+        salon_state:
+          type: string
+        salon_postal_code:
+          type: string
+        salon_country:
+          type: string
+        master_tag_ids:
+          type: array
+          items:
+            type: integer
+      required:
+        - first_name
+        - last_name
+        - personal_email
+        - personal_email_confirm
+        - birth_year
+        - phone_number
+        - gender
+        - salon_name
+        - salon_email
+        - salon_email_confirm
+        - salon_phone_number
+        - salon_address
+        - salon_city
+        - salon_state
+        - salon_postal_code
+        - salon_country
+        - master_tag_ids
+responses:
+  201:
+    description: Salon and owner registered successfully
+  400:
+    description: Missing fields, emails don't match, or business details already exist
+  500:
+    description: Registration failed
+    """
     username = session.get('register_username')
     password = session.get('register_password') #already hashed
     if not username or not password:
@@ -193,12 +349,114 @@ def register_salon():
                 )
         
         mysql.connection.commit()
+        
+        session['salon_id'] = salon_id
         session.pop('register_username', None)
         session.pop('register_password', None)
-        return jsonify({'message': 'Salon registered successfully'}), 201
+        
+        return jsonify({'message': 'Salon registered successfully', 'salon_id': salon_id}), 201
     
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+
+@register_bp.route('/salon-registration/part2', methods=['POST'])
+def register_salon_part2():
+    salon_id = session.get('salon_id')
+    
+    if not salon_id:
+        return jsonify({'error': 'You must be logged in as a salon owner to add services and employees.'}), 401
+    
+    data = request.get_json()
+    services = data.get('services', [])
+    employees = data.get('employees', [])
+    
+    if not services or len(services) == 0:
+        return jsonify({'error': 'At least one service is required'}), 400
+    
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor()
+    
+    try:
+        mysql.connection.begin()
+        now = datetime.now()
+        
+        for service in services:
+            name = (service.get('name') or '').strip()
+            description = (service.get('description') or '').strip()
+            duration_minutes = int(service.get('duration_minutes') or 0)
+            price = float(service.get('price') or 0)
+            tags = service.get('tags', [])
+            
+            if not name or not description or duration_minutes <= 0 or price <= 0:
+                continue
+            
+            query = """
+                insert into services(salon_id, name, description, duration_minutes, price, is_active)
+                values(%s, %s, %s, %s, %s, %s)
+            """
+            cursor.execute(query, (salon_id, name, description, duration_minutes, price, 1))
+            service_id = cursor.lastrowid
+            
+            if tags and isinstance(tags, list):
+                for tag_name in tags:
+                    if not tag_name:
+                        continue
+                    cursor.execute("select tag_id from tags where name = %s", (str(tag_name),))
+                    tag_row = cursor.fetchone()
+                    if tag_row:
+                        tag_id = tag_row[0]
+                        cursor.execute(
+                            "insert ignore into entity_tags(entity_type, entity_id, tag_id) values(%s, %s, %s)",
+                            ('service', service_id, tag_id)
+                        )
+        
+        for employee in employees:
+            first_name = (employee.get('first_name') or '').strip()
+            last_name = (employee.get('last_name') or '').strip()
+            description = (employee.get('description') or '').strip()
+            salary_value = float(employee.get('salary_value') or 0)
+            tags = employee.get('tags', [])
+            
+            if not first_name or not last_name:
+                continue
+            
+            query = """
+                insert into employees(salon_id, first_name, last_name, description)
+                values(%s, %s, %s, %s)
+            """
+            cursor.execute(query, (salon_id, first_name, last_name, description))
+            employee_id = cursor.lastrowid
+            
+            if salary_value > 0:
+                query = """
+                    insert into employee_salaries(salon_id, employee_id, salary_value, effective_date)
+                    values(%s, %s, %s, %s)
+                """
+                cursor.execute(query, (salon_id, employee_id, salary_value, now.date()))
+            
+            if tags and isinstance(tags, list):
+                for tag_name in tags:
+                    if not tag_name:
+                        continue
+                    cursor.execute("select master_tag_id from master_tags where name = %s", (str(tag_name),))
+                    tag_row = cursor.fetchone()
+                    if tag_row:
+                        master_tag_id = tag_row[0]
+                        cursor.execute(
+                            "insert ignore into entity_master_tags(entity_type, entity_id, master_tag_id) values(%s, %s, %s)",
+                            ('employees', employee_id, master_tag_id)
+                        )
+        
+        mysql.connection.commit()
+        return jsonify({'message': 'Services and employees added successfully'}), 201
+    
+    except Exception as e:
+        log_error(str(e), session.get("user_id"))
+        mysql.connection.rollback()
+        return jsonify({'error': f'Failed to add services/employees: {str(e)}'}), 500
     finally:
         cursor.close()

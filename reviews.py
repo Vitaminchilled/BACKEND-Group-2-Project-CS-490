@@ -260,8 +260,8 @@ def get_paginated_reviews(salon_id):
                 "comment": review[4],
                 "image_url": review[5],
                 "review_date": review[6],
-                "customer_name": customer_name,
-                "customer_id": review[10],  
+                "user": customer_name,
+                "user_id": review[10],  
                 "has_replies": bool(review[7])
             })
         return jsonify({
@@ -379,7 +379,12 @@ responses:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select users.first_name, concat(left(users.last_name, 1), '.') as last_initial, reviews.rating, reviews.comment
+            select 
+                users.first_name, 
+                concat(left(users.last_name, 1), '.') as last_initial, 
+                reviews.rating, 
+                reviews.comment,
+                reviews.review_date
             from reviews
             join users on reviews.customer_id = users.user_id
             where salon_id = %s
@@ -388,7 +393,14 @@ responses:
         cursor.execute(query, (salon_id,))
         reviews = cursor.fetchall()
         cursor.close()
-        return jsonify({'reviews': reviews}), 201
+        return jsonify({
+            'reviews': [{
+                'customer_name': review[0] + ' ' + review[1],
+                "rating": review[2],
+                "comment": review[3],
+                "review_date": review[4]
+            } for review in reviews]
+        }), 201
     except Exception as e:
         return jsonify({'error': 'Failed to fetch reviews', 'details': str(e)}), 500
 
@@ -483,6 +495,7 @@ responses:
         cursor.close()
         return jsonify({'message': 'Review posted successfully'}), 201
     except Exception as e:
+        current_app.logger.error(f"Error adding review: {e}")
         return jsonify({'error': 'Failed to post review'}), 500
 
 @reviews_bp.route('/reviews/<int:review_id>/reply', methods=['POST'])
