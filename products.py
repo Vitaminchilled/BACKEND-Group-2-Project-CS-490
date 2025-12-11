@@ -212,14 +212,15 @@ responses:
             fields.append(f"{key} = %s")
             values.append(value)
 
-    if not fields:
+    uploaded_file = request.files.get('image')
+    if not fields and not uploaded_file:
         return jsonify({'error': 'No update fields provided'}), 401
 
     mysql = current_app.config['MYSQL']
     cursor = mysql.connection.cursor(DictCursor)
 
     try:
-        cursor.execute("SELECT salon_id FROM products WHERE product_id = %s", (product_id,))
+        cursor.execute("SELECT salon_id, image_url FROM products WHERE product_id = %s", (product_id,))
         product = cursor.fetchone()
 
         if not product:
@@ -228,7 +229,7 @@ responses:
             return jsonify({'error': 'Unauthorized: This product does not belong to your salon'}), 403
 
         # Check for uploaded file
-        uploaded_file = request.files.get('image')
+        #uploaded_file = request.files.get('image')
         if uploaded_file:
             try:
                 if product.get('image_url'):
