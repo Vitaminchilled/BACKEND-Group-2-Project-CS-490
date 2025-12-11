@@ -621,7 +621,7 @@ def book_appointment():
             "appointment_date": appointment_date,
             "start_time": start_time,
             "end_time": end_time_str,
-            "employee_id": employee_id.
+            "employee_id": employee_id
         }
 
         if reference_image_saved_url:
