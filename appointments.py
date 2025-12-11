@@ -385,6 +385,15 @@ def book_appointment():
           - `file`
           Any file key will be accepted; backend will detect and upload to S3.
       - in: formData
+        name: reference_image_after
+        type: file
+        required: false
+        description: |
+          Optional image file (JPEG/PNG/etc.). Supported form keys:
+          - `reference_image` (recommended)
+          - `image`
+          - `file`
+      - in: formData
         name: reference_image_url
         type: string
         required: false
@@ -446,20 +455,30 @@ def book_appointment():
       url: https://aws.amazon.com/s3/
     """
 
-
     if request.is_json:
         data = request.get_json()
-        file_upload = None
+        file_upload_before = None
+        file_upload_after = None
+    
         reference_image_url = data.get("reference_image_url")
+        image_after_url = data.get("image_after_url")
+    
     else:
         data = request.form.to_dict()
-
-        # Handle uploaded file
-        file_upload = request.files.get("reference_image")
-        if file_upload and file_upload.filename.strip() == "":
-            file_upload = None
-
+    
+        # BEFORE image
+        file_upload_before = request.files.get("reference_image")
+        if file_upload_before and file_upload_before.filename.strip() == "":
+            file_upload_before = None
+    
         reference_image_url = data.get("reference_image_url")
+
+        # AFTER image
+        file_upload_after = request.files.get("image_after")
+        if file_upload_after and file_upload_after.filename.strip() == "":
+            file_upload_after = None
+    
+        image_after_url = data.get("image_after_url")
 
     # Required fields
     salon_id = data.get('salon_id')
@@ -479,17 +498,18 @@ def book_appointment():
     reference_image_saved_url = None
 
     try:
-        # -------------------------------------------------------
-        #   1) HANDLE IMAGE UPLOAD OR IMAGE URL
-        # -------------------------------------------------------
-        if file_upload:
-            reference_image_saved_url = S3Uploader.upload_image_to_s3(file_upload)
+        if file_upload_before:
+            reference_image_saved_url = S3Uploader.upload_image_to_s3(file_upload_before)
         elif reference_image_url:
             reference_image_saved_url = S3Uploader.upload_image_to_s3(reference_image_url)
+        
+        # AFTER IMAGE
+        if file_upload_after:
+            image_after_saved_url = S3Uploader.upload_image_to_s3(file_upload_after)
+        elif image_after_url:
+            image_after_saved_url = S3Uploader.upload_image_to_s3(image_after_url)
 
-        # -------------------------------------------------------
-        #   2) GET SERVICE DURATION
-        # -------------------------------------------------------
+        # GET SERVICE DURATION
         cursor.execute("SELECT duration_minutes FROM services WHERE service_id = %s", (service_id,))
         service = cursor.fetchone()
         if not service:
@@ -506,9 +526,7 @@ def book_appointment():
         end_dt = start_dt + duration
         end_time_str = end_dt.strftime("%H:%M:%S")
 
-        # -------------------------------------------------------
-        #   3) VALIDATE EMPLOYEE SCHEDULE
-        # -------------------------------------------------------
+        # VALIDATE EMPLOYEE SCHEDULE
         day_name = start_dt.strftime("%A")
 
         cursor.execute("""
@@ -540,10 +558,8 @@ def book_appointment():
 
         if not (start_dt < end_dt <= schedule_end_dt):
             return jsonify({'error': 'Service duration extends beyond working hours'}), 400
-
-        # -------------------------------------------------------
-        #   4) CHECK APPOINTMENT OVERLAP
-        # -------------------------------------------------------
+            
+        # CHECK APPOINTMENT OVERLAP
         cursor.execute("""
             SELECT 1 FROM appointments
             WHERE employee_id = %s
@@ -561,9 +577,8 @@ def book_appointment():
         if overlap:
             return jsonify({'error': 'Time slot overlaps with another appointment'}), 400
 
-        # -------------------------------------------------------
-        #   5) FIND MATCHING TIME SLOT
-        # -------------------------------------------------------
+
+        # FIND MATCHING TIME SLOT
         cursor.execute("""
             SELECT slot_id
             FROM time_slots
@@ -579,20 +594,23 @@ def book_appointment():
 
         time_slot_id = ts['slot_id']
 
-        # -------------------------------------------------------
-        #   6) INSERT APPOINTMENT + IMAGE URL
-        # -------------------------------------------------------
+        # INSERT APPOINTMENT + IMAGE URL
         now = datetime.now()
 
         cursor.execute("""
             INSERT INTO appointments (
                 customer_id, salon_id, employee_id, service_id, time_slot_id,
                 appointment_date, start_time, end_time, notes, image_url,
+                image_after_url,           -- NEW COLUMN
                 status, created_at, last_modified
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'booked',%s,%s)
-        """, (customer_id, salon_id, employee_id, service_id, time_slot_id,
-              appointment_date, start_time, end_time_str, notes, reference_image_saved_url,
-              now, now))
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'booked',%s,%s)
+        """, (
+            customer_id, salon_id, employee_id, service_id, time_slot_id,
+            appointment_date, start_time, end_time_str, notes,
+            reference_image_saved_url,
+            image_after_saved_url,
+            now, now
+        ))
 
         appointment_id = cursor.lastrowid
         mysql.connection.commit()
@@ -603,11 +621,14 @@ def book_appointment():
             "appointment_date": appointment_date,
             "start_time": start_time,
             "end_time": end_time_str,
-            "employee_id": employee_id
+            "employee_id": employee_id.
         }
 
         if reference_image_saved_url:
             response["reference_image_url"] = reference_image_saved_url
+
+        if image_after_saved_url:
+            response["image_after_url"] = image_after_saved_url
 
         return jsonify(response), 201
 
