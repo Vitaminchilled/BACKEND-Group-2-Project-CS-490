@@ -139,33 +139,35 @@ Edit/update product
 tags:
   - Products
 consumes:
-  - application/json
+  - multipart/form-data
 parameters:
   - name: product_id
     in: path
     type: integer
     required: true
     description: ID of the product to update
-  - in: body
-    name: body
+  - in: formData
+    name: salon_id
+    type: integer
     required: true
-    schema:
-      type: object
-      properties:
-        salon_id:
-          type: integer
-        name:
-          type: string
-        description:
-          type: string
-        price:
-          type: number
-          format: float
-        stock_quantity:
-          type: integer
-        image_url:
-          type: string
-          format: uri
+  - in: formData
+    name: name
+    type: string
+  - in: formData
+    name: description
+    type: string
+  - in: formData
+    name: price
+    type: number
+    format: float
+  - in: formData
+    name: stock_quantity
+    type: integer
+  - in: formData
+    name: image
+    type: file
+    required: false
+    description: Optional new product image
 responses:
   200:
     description: Product updated successfully
@@ -181,19 +183,30 @@ responses:
     description: Internal server error
     """
 
-    data = request.get_json()
-    salon_id = data.get('salon_id')
-
+    # Read form data (for file upload support)
+    salon_id = request.form.get('salon_id')
     if not salon_id:
         return jsonify({'error': 'Missing salon_id'}), 400
 
+    # Get fields from form data
     fields = []
     values = []
-
-    for key in ['name', 'description', 'price', 'stock_quantity', 'image_url']:
-        if key in data:
+    for key in ['name', 'description', 'price', 'stock_quantity']:
+        value = request.form.get(key)
+        if value is not None:
             fields.append(f"{key} = %s")
-            values.append(data[key])
+            values.append(value)
+
+    # Check for uploaded file
+    uploaded_file = request.files.get('image')
+    if uploaded_file:
+        try:
+            image_url = S3Uploader.upload_image_to_s3(uploaded_file)
+            fields.append("image_url = %s")
+            values.append(image_url)
+        except Exception as e:
+            log_error(str(e), session.get("user_id"))
+            return jsonify({'error': f"Image upload failed: {str(e)}"}), 500
 
     if not fields:
         return jsonify({'error': 'No update fields provided'}), 401
