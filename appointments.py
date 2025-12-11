@@ -979,38 +979,50 @@ def total_appointments(salon_id):
 @appointments_bp.route('/appointments/update', methods=['PUT'])
 def update_appointment():
     """
-    Update an appointment date/time
+    Update an appointment date/time and optionally replace before/after images
     ---
     tags:
       - Appointments
     consumes:
-      - application/json
+      - multipart/form-data
     parameters:
-      - in: body
-        name: body
+      - in: formData
+        name: appointment_id
+        type: integer
         required: true
-        schema:
-          type: object
-          properties:
-            appointment_id:
-              type: integer
-            new_date:
-              type: string
-            new_start_time:
-              type: string
-            new_note:
-              type: string
+      - in: formData
+        name: new_date
+        type: string
+      - in: formData
+        name: new_start_time
+        type: string
+      - in: formData
+        name: new_note
+        type: string
+      - in: formData
+        name: image_before
+        type: file
+        required: false
+      - in: formData
+        name: image_after
+        type: file
+        required: false
     responses:
       200:
         description: Appointment updated
       404:
         description: Appointment not found
     """
-    data = request.get_json()
-    appointment_id = data.get('appointment_id')
-    new_date = data.get('new_date')        # needs this format: YYYY-MM-DD
-    new_start_time = data.get('new_start_time')  # needs this format: HH:MM:SS
-    new_note = data.get('new_note')        # optional
+
+    # accept text fields from form
+    appointment_id = request.form.get('appointment_id')
+    new_date = request.form.get('new_date')
+    new_start_time = request.form.get('new_start_time')
+    new_note = request.form.get('new_note')
+
+    # accept files
+    image_before_file = request.files.get('image_before')
+    image_after_file = request.files.get('image_after')
 
     if not appointment_id:
         return jsonify({'error': 'Missing appointment ID'}), 400
@@ -1019,34 +1031,35 @@ def update_appointment():
     cursor = mysql.connection.cursor(DictCursor)
 
     try:
-        # get existing format
+        # fetch existing appointment
         cursor.execute("SELECT * FROM appointments WHERE appointment_id = %s", (appointment_id,))
         appointment = cursor.fetchone()
         if not appointment:
             return jsonify({'error': 'Appointment not found'}), 404
 
-        # Will use existing appointment data if not provided by customer originally
+        # use existing values as fallback
         appointment_date = new_date or appointment['appointment_date']
         start_time = new_start_time or appointment['start_time']
         notes = new_note if new_note is not None else appointment['notes']
 
-        # getting duration of service
+        # get duration
         cursor.execute("SELECT duration_minutes FROM services WHERE service_id = %s", (appointment['service_id'],))
         service = cursor.fetchone()
         if not service:
             return jsonify({'error': 'Invalid service associated with this appointment'}), 400
         duration = timedelta(minutes=service['duration_minutes'])
 
-        # calc new start and end time
+        # calculate times
         try:
             start_dt = datetime.strptime(f"{appointment_date} {start_time}", "%Y-%m-%d %H:%M:%S")
         except ValueError:
             return jsonify({'error': 'Invalid date or time format'}), 400
+
         end_dt = start_dt + duration
         end_time_str = end_dt.strftime("%H:%M:%S")
-
         day_name = start_dt.strftime("%A")
 
+        # employee schedule validation
         cursor.execute("""
             SELECT start_time, end_time
             FROM time_slots
@@ -1068,12 +1081,13 @@ def update_appointment():
         schedule_start_dt = datetime.combine(start_dt.date(), schedule_start_time)
         schedule_end_dt = datetime.combine(start_dt.date(), schedule_end_time)
 
-        # checker for working hours
+        # working hours check
         if not (schedule_start_dt <= start_dt < schedule_end_dt):
             return jsonify({'error': 'Requested time is outside working hours'}), 400
         if not (start_dt < end_dt <= schedule_end_dt):
             return jsonify({'error': 'Service duration extends beyond working hours'}), 400
 
+        # overlap check
         cursor.execute("""
             SELECT 1 FROM appointments
             WHERE employee_id = %s
@@ -1098,16 +1112,41 @@ def update_appointment():
         if overlap:
             return jsonify({'error': 'Time slot overlaps with another appointment'}), 400
 
-        # insert updated appoint into data
+        new_image_before_url = appointment['image_url']
+        new_image_after_url = appointment['image_after_url']
+
+        # replace BEFORE photo
+        if image_before_file:
+            if appointment['image_url']:
+                delete_from_s3(appointment['image_url'])
+            new_image_before_url = upload_to_s3(image_before_file)
+
+        # replace AFTER photo
+        if image_after_file:
+            if appointment['image_after_url']:
+                delete_from_s3(appointment['image_after_url'])
+            new_image_after_url = upload_to_s3(image_after_file)
+
         cursor.execute("""
             UPDATE appointments
             SET appointment_date = %s,
                 start_time = %s,
                 end_time = %s,
                 notes = %s,
+                image_url = %s,
+                image_after_url = %s,
                 last_modified = %s
             WHERE appointment_id = %s
-        """, (appointment_date, start_time, end_time_str, notes, datetime.now(), appointment_id))
+        """, (
+            appointment_date,
+            start_time,
+            end_time_str,
+            notes,
+            new_image_before_url,
+            new_image_after_url,
+            datetime.now(),
+            appointment_id
+        ))
 
         mysql.connection.commit()
         return jsonify({
@@ -1115,7 +1154,9 @@ def update_appointment():
             'appointment_date': appointment_date,
             'start_time': start_time,
             'end_time': end_time_str,
-            'notes': notes
+            'notes': notes,
+            'image_url': new_image_before_url,
+            'image_after_url': new_image_after_url
         }), 200
 
     except Exception as e:
