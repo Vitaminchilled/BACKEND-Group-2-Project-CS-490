@@ -379,26 +379,28 @@ def book_appointment():
         type: file
         required: false
         description: |
-          Optional image file (JPEG/PNG/etc.). Supported form keys:
-          - `reference_image` (recommended)
-          - `image`
-          - `file`
-          Any file key will be accepted; backend will detect and upload to S3.
+          Optional BEFORE image file (JPEG/PNG/etc.).
+          Must be uploaded using the field name: `reference_image`.
+
       - in: formData
         name: reference_image_after
         type: file
         required: false
         description: |
-          Optional image file (JPEG/PNG/etc.). Supported form keys:
-          - `reference_image` (recommended)
-          - `image`
-          - `file`
+          Optional AFTER image file (JPEG/PNG/etc.).
+          Must be uploaded using the field name: `reference_image_after`.
+
       - in: formData
         name: reference_image_url
         type: string
         required: false
-        description: Optional direct image URL. Use this instead of uploading a file if preferred.
-        example: "https://example.com/hairstyle.jpg"
+        description: Optional direct BEFORE-image URL.
+
+      - in: formData
+        name: reference_image_after_url
+        type: string
+        required: false
+        description: Optional direct AFTER-image URL.
     
     # Note: The endpoint also accepts the same fields as JSON (application/json) — if sending JSON,
     # include the same parameter names (e.g., salon_id, employee_id, customer_id, service_id,
