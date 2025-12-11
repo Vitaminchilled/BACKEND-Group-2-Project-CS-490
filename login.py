@@ -7,6 +7,8 @@ from utils.emails import send_email
 
 login_bp = Blueprint('login', __name__)
 
+#works with login may lose some of the login stuff
+#backend intended so they'll have to look it over
 @login_bp.route('/login', methods=['POST'])
 def login():
     """
@@ -48,21 +50,80 @@ def login():
     cursor = mysql.connection.cursor()
     cursor.execute("""select user_id, password from users where username = %s""", (username,))
     user = cursor.fetchone()
-    cursor.close()
+    
     #check if user exists
     if not user:
+        cursor.close()
+        session.clear()
         log_error("Invalid login attempt for username: {}".format(username), None)
         return jsonify({'error': 'Invalid username or password'}), 401
     
     #check if password is correct
     user_id, hashed_password = user
     if not check_password_hash(hashed_password, password):
+        cursor.close()
+        session.clear()
         log_error("Invalid login attempt for username: {}".format(username), None)
         return jsonify({'error': 'Invalid username or password'}), 401
     
+    # Get first_name
+    first_name = None
+    try:
+        cursor.execute("select first_name from users where user_id = %s limit 1", (user_id,))
+        r = cursor.fetchone()
+        if r and r[0]:
+            first_name = r[0]
+    except Exception:
+        first_name = None
+
+    # Get role
+    role = None
+    try:
+        cursor.execute("select role from users where user_id = %s limit 1", (user_id,))
+        r = cursor.fetchone()
+        if r and r[0]:
+            role = str(r[0]).lower()
+    except Exception:
+        role = None
+
+    # Get salon_id and is_verified for salon owners
+    salon_id = None
+    is_verified = None
+    
+    if role == 'owner':
+        try:
+            cursor.execute("select salon_id, is_verified from salons where owner_id = %s limit 1", (user_id,))
+            r = cursor.fetchone()
+            if r:
+                salon_id = r[0]
+                is_verified = bool(r[1]) if r[1] is not None else False
+        except Exception as e:
+            log_error(f"Error fetching salon: {e}", user_id)
+            salon_id = None
+            is_verified = None
+
+    cursor.close()
+
+    if not role:
+        role = 'customer'
+    if not first_name or str(first_name).strip() == "":
+        first_name = username
+
     session['user_id'] = user_id
     session['username'] = username
-    return jsonify({'message': 'Login successful'}), 200
+    session['first_name'] = first_name
+    session['role'] = role
+    session['salon_id'] = salon_id
+    session['is_verified'] = is_verified
+    
+    return jsonify({
+        'message': 'Login successful',
+        'first_name': first_name,
+        'role': role,
+        'user_id': user_id,
+        'salon_id': salon_id,
+        'is_verified': is_verified
+    }), 200
 
 @login_bp.route('/auth/status', methods=['GET'])
 def auth_status():
@@ -76,7 +137,15 @@ def auth_status():
         description: Returns whether the user is authenticated
     """
     if 'user_id' in session:
-        return jsonify({'authenticated': True, 'username': session.get('username')}), 200
+        return jsonify({
+            'authenticated': True,
+            'username': session.get('username'),
+            'first_name': session.get('first_name'),
+            'user_id': session.get('user_id'),
+            'role': session.get('role'),
+            'salon_id': session.get('salon_id'),
+            'is_verified': session.get('is_verified')
+        }), 200
     else:
         return jsonify({'authenticated': False}), 200
     
@@ -93,7 +162,6 @@ def logout():
     """
     session.clear()
     return jsonify({'message': 'Logout successful'}), 200
-
 
 @login_bp.route('/forgot-password', methods=['POST'])
 def forgot_password():
