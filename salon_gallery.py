@@ -2,7 +2,7 @@ import os
 from flask import Blueprint, request, jsonify, current_app, session
 from datetime import datetime
 from utils.logerror import log_error
-
+from s3_uploads import S3Uploader
 salon_gallery_bp = Blueprint('salon_gallery', __name__)
 
 #get salon pictures
@@ -223,106 +223,100 @@ parameters:
     in: formData
     required: true
     type: file
-    description: Image file to upload
   - name: description
     in: formData
     type: string
-    description: Image description
   - name: employee_id
     in: formData
     type: integer
-    description: For employee profile pictures
+  - name: service_id
+    in: formData
+    type: integer
   - name: is_primary
     in: formData
     type: boolean
-    description: Set as salon primary profile picture
 responses:
   201:
-    description: Image uploaded successfully
+    description: Image uploaded
   400:
-    description: Image file required or employee/product doesn't belong to salon
+    description: Invalid input
   500:
-    description: Failed to upload image
+    description: Failed
 """
-
-    '''
-      - name: product_id
-    in: formData
-    type: integer
-    description: For product thumbnails
-    '''
     image = request.files.get('image')
     description = request.form.get('description', '')
-    employee_id = request.form.get('employee_id', None)  # For employee profile pictures
-    #product_id = request.form.get('product_id', None)    # For product thumbnails
-    is_primary = request.form.get('is_primary', "false").lower() == "true" # For salon profile pictures
+    employee_id = request.form.get('employee_id')
+    service_id = request.form.get('service_id')
+    is_primary = request.form.get('is_primary', "false").lower() == "true"
+
+    employee_id = int(employee_id) if employee_id else None
+    service_id = int(service_id) if service_id else None
 
     if not image:
         return jsonify({'error': 'Image file is required'}), 400
-    
+
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
 
         if employee_id:
-            query = """
-                select employee_id 
-                from employees
-                where employee_id = %s and salon_id = %s
-            """
-            cursor.execute(query, (employee_id, salon_id))
+            cursor.execute("""
+                SELECT employee_id FROM employees
+                WHERE employee_id = %s AND salon_id = %s
+            """, (employee_id, salon_id))
+
             if not cursor.fetchone():
                 cursor.close()
                 return jsonify({'error': f'Employee {employee_id} does not belong to salon {salon_id}'}), 400
-            '''
-        if product_id:
-            query = """
-                select product_id
-                from products
-                where product_id = %s and salon_id = %s
-            """
-            cursor.execute(query, (product_id, salon_id))
+
+        if service_id:
+            cursor.execute("""
+                SELECT service_id FROM services
+                WHERE service_id = %s AND salon_id = %s
+            """, (service_id, salon_id))
+
             if not cursor.fetchone():
                 cursor.close()
-                return jsonify({'error': f'Product {product_id} does not belong to salon {salon_id}'}), 400
-            '''
-        #remove the previous profile photo
-        if is_primary and not employee_id and not product_id:
-            query = """
-                update salon_gallery
-                set is_primary = false 
-                where salon_id = %s and is_primary = true
-            """
-            cursor.execute(query, (salon_id,))
+                return jsonify({'error': f'Service {service_id} does not belong to salon {salon_id}'}), 400
 
-        #insert the image record
-        upload_folder = os.path.join(current_app.root_path, 'gallery')
-        os.makedirs(upload_folder, exist_ok=True)
+        if is_primary and not employee_id and not service_id:
+            cursor.execute("""
+                SELECT image_url FROM salon_gallery
+                WHERE salon_id = %s AND is_primary = TRUE
+            """, (salon_id,))
+            old_primary = cursor.fetchone()
 
-        filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{image.filename}"
-        filepath = os.path.join(upload_folder, filename)
+            if old_primary and old_primary[0]:
+                S3Uploader.delete_image_from_s3(old_primary[0])
 
-        image.save(filepath)
-        image_url = f"/gallery/{filename}"
+            cursor.execute("""
+                UPDATE salon_gallery
+                SET is_primary = FALSE
+                WHERE salon_id = %s AND is_primary = TRUE
+            """, (salon_id,))
 
-        query = """
-            insert into salon_gallery (salon_id, employee_id, product_id, image_url, description, is_primary, created_at, last_modified)
-            values (%s, %s, %s, %s, %s, %s, %s, %s)
-        """
-        cursor.execute(query, (salon_id, employee_id, product_id, image_url, description, is_primary, datetime.now(), datetime.now()))
+        image_url = S3Uploader.upload_image_to_s3(image)
+
+        cursor.execute("""
+            INSERT INTO salon_gallery 
+            (salon_id, image_url, description, employee_id, service_id, is_primary, created_at, last_modified)
+            VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+        """, (salon_id, image_url, description, employee_id, service_id, is_primary))
+
         mysql.connection.commit()
         gallery_id = cursor.lastrowid
         cursor.close()
 
         return jsonify({
-            'message': 'Image uploaded successfully',
-            'gallery_id': gallery_id,
-            'image_url': image_url
-        }), 201  
+            "message": "Image uploaded successfully",
+            "gallery_id": gallery_id,
+            "image_url": image_url
+        }), 201
 
     except Exception as e:
         log_error(str(e), session.get("user_id"))
-        return jsonify({'error': f'Failed to upload image: {str(e)}'}), 500
+        return jsonify({'error': f"Failed to upload image: {str(e)}"}), 500
+
 
 @salon_gallery_bp.route('/salon/gallery/<int:gallery_id>/update', methods=['PUT'])
 def update_image(gallery_id):
