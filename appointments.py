@@ -500,6 +500,7 @@ def book_appointment():
     reference_image_saved_url = None
     image_after_saved_url = None
     try:
+        '''
         if file_upload_before:
             reference_image_saved_url = S3Uploader.upload_image_to_s3(file_upload_before)
         elif reference_image_url:
@@ -510,6 +511,17 @@ def book_appointment():
             image_after_saved_url = S3Uploader.upload_image_to_s3(file_upload_after)
         elif image_after_url:
             image_after_saved_url = S3Uploader.upload_image_to_s3(image_after_url)
+        '''
+
+        if file_upload_before:
+            reference_image_saved_url = S3Uploader.upload_image_to_s3(file_upload_before)
+        else:
+            reference_image_saved_url = reference_image_url
+        
+        if file_upload_after:
+            image_after_saved_url = S3Uploader.upload_image_to_s3(file_upload_after)
+        else:
+            image_after_saved_url = image_after_url
 
         # GET SERVICE DURATION
         cursor.execute("SELECT duration_minutes FROM services WHERE service_id = %s", (service_id,))
