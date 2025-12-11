@@ -212,20 +212,6 @@ responses:
             fields.append(f"{key} = %s")
             values.append(value)
 
-    # Check for uploaded file
-    uploaded_file = request.files.get('image')
-    if uploaded_file:
-        try:
-            if product.get('image_url'):
-                S3Uploader.delete_image_from_s3(product['image_url'])
-            
-            image_url = S3Uploader.upload_image_to_s3(uploaded_file)
-            fields.append("image_url = %s")
-            values.append(image_url)
-        except Exception as e:
-            log_error(str(e), session.get("user_id"))
-            return jsonify({'error': f"Image upload failed: {str(e)}"}), 500
-
     if not fields:
         return jsonify({'error': 'No update fields provided'}), 401
 
@@ -240,6 +226,20 @@ responses:
             return jsonify({'error': 'Product not found'}), 404
         if product['salon_id'] != int(salon_id):
             return jsonify({'error': 'Unauthorized: This product does not belong to your salon'}), 403
+
+        # Check for uploaded file
+        uploaded_file = request.files.get('image')
+        if uploaded_file:
+            try:
+                if product.get('image_url'):
+                    S3Uploader.delete_image_from_s3(product['image_url'])
+                
+                image_url = S3Uploader.upload_image_to_s3(uploaded_file)
+                fields.append("image_url = %s")
+                values.append(image_url)
+            except Exception as e:
+                log_error(str(e), session.get("user_id"))
+                return jsonify({'error': f"Image upload failed: {str(e)}"}), 500
 
         # Update product
         query = f"UPDATE products SET {', '.join(fields)}, last_modified = NOW() WHERE product_id = %s"
