@@ -232,10 +232,6 @@ parameters:
     in: formData
     type: integer
     description: For employee profile pictures
-  - name: product_id
-    in: formData
-    type: integer
-    description: For product thumbnails
   - name: is_primary
     in: formData
     type: boolean
@@ -248,10 +244,17 @@ responses:
   500:
     description: Failed to upload image
 """
+
+    '''
+      - name: product_id
+    in: formData
+    type: integer
+    description: For product thumbnails
+    '''
     image = request.files.get('image')
     description = request.form.get('description', '')
     employee_id = request.form.get('employee_id', None)  # For employee profile pictures
-    product_id = request.form.get('product_id', None)    # For product thumbnails
+    #product_id = request.form.get('product_id', None)    # For product thumbnails
     is_primary = request.form.get('is_primary', "false").lower() == "true" # For salon profile pictures
 
     if not image:
@@ -271,7 +274,7 @@ responses:
             if not cursor.fetchone():
                 cursor.close()
                 return jsonify({'error': f'Employee {employee_id} does not belong to salon {salon_id}'}), 400
-            
+            '''
         if product_id:
             query = """
                 select product_id
@@ -282,7 +285,7 @@ responses:
             if not cursor.fetchone():
                 cursor.close()
                 return jsonify({'error': f'Product {product_id} does not belong to salon {salon_id}'}), 400
-            
+            '''
         #remove the previous profile photo
         if is_primary and not employee_id and not product_id:
             query = """
