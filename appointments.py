@@ -1118,14 +1118,14 @@ def update_appointment():
         # replace BEFORE photo
         if image_before_file:
             if appointment['image_url']:
-                S3uploader.delete_image_from_s3(appointment['image_url'])
-            new_image_before_url = upload_to_s3(image_before_file)
+                S3Uploader.delete_image_from_s3(appointment['image_url'])
+            new_image_before_url = S3Uploader.upload_image_to_s3(image_before_file)
 
         # replace AFTER photo
         if image_after_file:
             if appointment['image_after_url']:
-                S3uploader.delete_image_from_s3(appointment['image_after_url'])
-            new_image_after_url = upload_to_s3(image_after_file)
+                S3Uploader.delete_image_from_s3(appointment['image_after_url'])
+            new_image_after_url = S3Uploader.upload_image_to_s3(image_after_file)
 
         cursor.execute("""
             UPDATE appointments
