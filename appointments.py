@@ -383,7 +383,7 @@ def book_appointment():
           Must be uploaded using the field name: `reference_image`.
 
       - in: formData
-        name: reference_image_after
+        name: image_after
         type: file
         required: false
         description: |
