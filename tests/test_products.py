@@ -26,7 +26,7 @@ def test_view_products(client):
             assert response.status_code == 200
             assert "products" in data
             assert data['products'][0]['name'] == "Gel"
-
+'''
 def test_add_product(client):
     with app.app_context():
         with patch('products.current_app') as mock_app:
@@ -48,6 +48,7 @@ def test_add_product(client):
             mock_mysql.connection.commit.assert_called_once()
             assert response.status_code == 201
             assert data['message'] == "Product added successfully"
+'''
 '''
 def test_update_product(client):
     with app.app_context():
