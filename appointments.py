@@ -496,7 +496,7 @@ def book_appointment():
     cursor = mysql.connection.cursor(DictCursor)
 
     reference_image_saved_url = None
-
+    image_after_saved_url = None
     try:
         if file_upload_before:
             reference_image_saved_url = S3Uploader.upload_image_to_s3(file_upload_before)
