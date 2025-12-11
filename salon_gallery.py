@@ -355,40 +355,50 @@ responses:
 
     if not any([image, description]):
         return jsonify({'error': 'No fields to update provided'}), 400
-    
+
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
-        query = """
-            select image_url from salon_gallery
-            where gallery_id = %s
-        """
-        cursor.execute(query, (gallery_id,))
+
+        # Get existing data
+        cursor.execute("""
+            SELECT image_url, description
+            FROM salon_gallery
+            WHERE gallery_id = %s
+        """, (gallery_id,))
         gallery = cursor.fetchone()
+
         if not gallery:
             cursor.close()
             return jsonify({'error': 'Gallery image not found'}), 404
 
-        new_image_url = gallery[0]
+        old_image_url = gallery[0]
+        old_description = gallery[1]
+
+        new_image_url = old_image_url
+
         if image:
-            upload_folder = os.path.join(current_app.root_path, 'gallery')
-            os.makedirs(upload_folder, exist_ok=True)
+            new_image_url = S3Uploader.upload_image_to_s3(image)
 
-            filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{image.filename}"
-            filepath = os.path.join(upload_folder, filename)
+            if old_image_url:
+                S3Uploader.delete_image_from_s3(old_image_url)
 
-            image.save(filepath)
-            new_image_url = f"/gallery/{filename}"
+        if description is None:
+            description = old_description
 
-        query = """
-            update salon_gallery
-            set image_url = %s, description = %s, last_modified = now()
-            where gallery_id = %s
-        """
-        cursor.execute(query, (new_image_url, description, gallery_id))
+        cursor.execute("""
+            UPDATE salon_gallery
+            SET image_url = %s,
+                description = %s,
+                last_modified = NOW()
+            WHERE gallery_id = %s
+        """, (new_image_url, description, gallery_id))
+
         mysql.connection.commit()
         cursor.close()
+
         return jsonify({'message': 'Image updated successfully'}), 200
+
     except Exception as e:
         log_error(str(e), session.get("user_id"))
         return jsonify({'error': f'Failed to update image: {str(e)}'}), 500
