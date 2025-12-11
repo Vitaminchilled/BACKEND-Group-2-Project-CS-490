@@ -428,25 +428,44 @@ responses:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
 
-        query = """
-            select gallery_id, is_primary
-            from salon_gallery 
-            where gallery_id = %s
-        """
-        cursor.execute(query, (gallery_id,))
-        image = cursor.fetchone()
-        if not image:
+        cursor.execute("""
+            SELECT image_url, salon_id, is_primary
+            FROM salon_gallery
+            WHERE gallery_id = %s
+        """, (gallery_id,))
+        row = cursor.fetchone()
+
+        if not row:
             cursor.close()
             return jsonify({'error': 'Image not found'}), 404
-        
-        query = """
-            delete from salon_gallery
-            where gallery_id = %s
-        """
-        cursor.execute(query, (gallery_id,))
+
+        image_url = row[0]
+        salon_id = row[1]
+        is_primary = row[2]
+
+        if image_url:
+            S3Uploader.delete_image_from_s3(image_url)
+
+        cursor.execute("""
+            DELETE FROM salon_gallery
+            WHERE gallery_id = %s
+        """, (gallery_id,))
         mysql.connection.commit()
+        
+        if is_primary:
+            cursor.execute("""
+                UPDATE salon_gallery
+                SET is_primary = FALSE
+                WHERE salon_id = %s
+            """, (salon_id,))
+            mysql.connection.commit()
+
         cursor.close()
-        return jsonify({'message': 'Image deleted successfully', 'gallery_id': gallery_id}), 200
+
+        return jsonify({
+            'message': 'Image deleted successfully',
+            'gallery_id': gallery_id
+        }), 200
 
     except Exception as e:
         log_error(str(e), session.get("user_id"))
