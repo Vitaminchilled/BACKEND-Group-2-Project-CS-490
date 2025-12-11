@@ -216,6 +216,9 @@ responses:
     uploaded_file = request.files.get('image')
     if uploaded_file:
         try:
+            if product.get('image_url'):
+                S3Uploader.delete_image_from_s3(product['image_url'])
+            
             image_url = S3Uploader.upload_image_to_s3(uploaded_file)
             fields.append("image_url = %s")
             values.append(image_url)
