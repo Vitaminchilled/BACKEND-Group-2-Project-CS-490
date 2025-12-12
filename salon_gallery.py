@@ -255,6 +255,13 @@ responses:
     if not image:
         return jsonify({'error': 'Image file is required'}), 400
 
+    stage = request.form.get('stage')  # before/after
+
+    # Determine description
+    if stage in ["before", "after"]:
+        description = stage
+    elif not description:
+        description = 'reference'
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -479,6 +486,28 @@ responses:
 # Before service images
 @salon_gallery_bp.route('/salon/<int:salon_id>/appointments/<int:appointment_id>/before-image', methods=['GET'])
 def get_before_image(salon_id, appointment_id):
+    """
+    Get before-service photos for a specific appointment
+    ---
+    tags:
+      - Salon Gallery
+    parameters:
+      - name: salon_id
+        in: path
+        required: true
+        type: integer
+      - name: appointment_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: List of before-service images
+      404:
+        description: No before-service photos found
+      500:
+        description: Failed to fetch before-service images
+    """
     cursor = None
     try:
         mysql = current_app.config["MYSQL"]
@@ -515,6 +544,28 @@ def get_before_image(salon_id, appointment_id):
 # After service images
 @salon_gallery_bp.route('/salon/<int:salon_id>/appointments/<int:appointment_id>/after-image', methods=['GET'])
 def get_after_image(salon_id, appointment_id):
+    """
+    Get after-service photos for a specific appointment
+    ---
+    tags:
+      - Salon Gallery
+    parameters:
+      - name: salon_id
+        in: path
+        required: true
+        type: integer
+      - name: appointment_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: List of after-service images
+      404:
+        description: No after service photos found
+      500:
+        description: Failed to fetch after service images
+    """
     cursor = None
     try:
         mysql = current_app.config["MYSQL"]
@@ -552,7 +603,26 @@ def get_after_image(salon_id, appointment_id):
 @salon_gallery_bp.route('/salon/<int:salon_id>/appointments/<int:appointment_id>/reference-images', methods=['GET'])
 def get_reference_images(salon_id, appointment_id):
     """
-    Get reference images for an appointment (non-before/after images)
+    Get reference images for a specific appointment (non-before/after images)
+    ---
+    tags:
+      - Salon Gallery
+    parameters:
+      - name: salon_id
+        in: path
+        required: true
+        type: integer
+      - name: appointment_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: List of reference images
+      404:
+        description: No reference photos found
+      500:
+        description: Failed to fetch reference images
     """
     cursor = None
     try:
