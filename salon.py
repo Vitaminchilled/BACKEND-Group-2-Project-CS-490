@@ -282,7 +282,7 @@ def get_salon_info(salon_id):
         return jsonify({'error': 'Failed to fetch salon', 'details': str(e)}), 500
     
 #send promotional emails to all customers of the salon who favorited the salon or had an appointment there
-@salon_bp.route('/api/salon/<int:salon_id>/promotions/email', methods=['POST'])
+@salon_bp.route('/salon/<int:salon_id>/promotions/email', methods=['POST'])
 def send_promotional_email(salon_id):
     try:
         mysql = current_app.config['MYSQL']
