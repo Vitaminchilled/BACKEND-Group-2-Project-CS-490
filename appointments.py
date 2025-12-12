@@ -142,17 +142,6 @@ def book_appointment():
         if overlap:
             return jsonify({'error': 'Time slot overlaps with another appointment'}), 400
 
-        # inserting into time slot, idk if this is neccesary, 
-        # might end up removing time_slot table from database down the line...
-        # cursor.execute("""
-        #     INSERT INTO time_slots (
-        #         salon_id, employee_id, day, start_time, end_time, is_available
-        #     ) VALUES (%s, %s, %s, %s, %s, FALSE)
-        # """, (salon_id, employee_id, appointment_date, start_time, end_time_str, 1))
-        # time_slot_id = cursor.lastrowid
-
-        # time_slot_id = time_slot_id['slot_id']
-
         cursor.execute("""
             SELECT slot_id
             FROM time_slots
@@ -208,78 +197,6 @@ def debug_test():
 
 # This is the appointments view function, this is the function you'll use when you want to
 # get data about appointments, maybe things like viewing appointment history and etc
-'''@appointments_bp.route('/appointments/view', methods=['GET'])
-def view_appointments():
-    """
-    View appointments for a customer or salon
-    ---
-    tags:
-      - Appointments
-    parameters:
-      - name: role
-        in: query
-        required: true
-        type: string
-        description: customer or salon
-      - name: id
-        in: query
-        required: true
-        type: integer
-        description: user or salon ID
-    responses:
-      200:
-        description: Appointments returned
-      400:
-        description: Missing required parameters
-    """
-    user_type = request.args.get('role')  # 'customer' or 'salon'
-    user_id = request.args.get('id')
-
-    if not all([user_type, user_id]):
-        return jsonify({'error': 'Missing required parameters'}), 400
-    
-    try:
-        user_id = int(user_id)
-    except ValueError:
-        return jsonify({'error': 'ID must be an integer'}), 400
-    
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor(DictCursor)
-    
-    try:
-        if user_type == 'customer':
-            cursor.execute("""
-                SELECT a.appointment_id, a.appointment_date, a.status,
-                       s.name AS salon_name, sv.name AS service_name, sv.price as service_price
-                FROM appointments a
-                JOIN salons s ON a.salon_id = s.salon_id
-                JOIN services sv ON a.service_id = sv.service_id
-                WHERE a.customer_id = %s
-                ORDER BY a.appointment_date DESC
-            """, (user_id,))
-        elif user_type == 'salon':
-            cursor.execute("""
-                SELECT a.appointment_id, a.appointment_date, a.status,
-                       u.first_name, u.last_name, sv.name AS service_name
-                FROM appointments a
-                JOIN users u ON a.customer_id = u.user_id
-                JOIN services sv ON a.service_id = sv.service_id
-                WHERE a.salon_id = %s
-                ORDER BY a.appointment_date DESC
-            """, (user_id,))
-        else:
-            return jsonify({'error': 'Invalid role specified'}), 400
-        
-        appointments = cursor.fetchall()
-        return jsonify({'appointments': appointments}), 200
-        
-    except Exception as e:
-        log_error(str(e), session.get("user_id"))
-        return jsonify({'error': str(e)}), 500
-    finally:
-        cursor.close()
-'''
-
 @appointments_bp.route('/appointments/view', methods=['GET'])
 def view_appointments():
     """
@@ -307,6 +224,9 @@ def view_appointments():
     user_type = request.args.get('role')  # 'customer' or 'salon'
     user_id = request.args.get('id')
 
+    if user_id is None:
+        user_id = session.get('user_id') #fail safe?
+
     if not all([user_type, user_id]):
         return jsonify({'error': 'Missing required parameters'}), 400
     
@@ -323,21 +243,24 @@ def view_appointments():
             cursor.execute("""
                 SELECT 
                     a.appointment_id, 
+                    a.customer_id,
                     a.appointment_date, 
                     a.start_time,
                     a.end_time,
                     a.status,
-                    a.notes,
+                    a.notes AS customer_notes,
                     s.salon_id,
                     s.name AS salon_name,
                     sv.service_id,
                     sv.name AS service_name,
                     sv.description AS service_description,
-                    sv.price AS service_price,
+                    sv.price AS price,
                     sv.duration_minutes AS service_duration,
                     e.employee_id,
                     CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
-                    e.description AS employee_description
+                    e.description AS employee_description,
+                    a.image_url,
+                    a.image_after_url
                 FROM appointments a
                 JOIN salons s ON a.salon_id = s.salon_id
                 JOIN services sv ON a.service_id = sv.service_id
@@ -367,6 +290,8 @@ def view_appointments():
                     e.employee_id,
                     CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
                     e.description AS employee_description
+                    a.image_url,
+                    a.image_after_url
                 FROM appointments a
                 JOIN users u ON a.customer_id = u.user_id
                 JOIN services sv ON a.service_id = sv.service_id
@@ -399,8 +324,8 @@ def view_appointments():
         cursor.close()
 
 
-@appointments_bp.route('/appointments/reviewless', methods=['GET'])
-def reviewless_appointments():
+@appointments_bp.route('/appointments/reviewless/<int:salon_id>', methods=['GET'])
+def reviewless_appointments(salon_id):
     """
     Get customer appointments that don't have reviews yet
     ---
@@ -418,11 +343,13 @@ def reviewless_appointments():
       400:
         description: Missing customer ID
     """
-    customer_id = request.args.get('customer_id')
+    #customer_id = request.args.get('customer_id')
+    # user context user_id wasnt always set so this was reliable
+    customer_id = session.get('user_id')
 
     if not customer_id:
         return jsonify({'error': 'Missing customer_id parameter'}), 400
-    
+
     try:
         customer_id = int(customer_id)
     except ValueError:
@@ -440,12 +367,12 @@ def reviewless_appointments():
                 a.start_time,
                 a.end_time,
                 a.status,
-                a.notes,
+                a.notes as customer_notes,
                 s.salon_id,
                 s.name AS salon_name,
                 sv.service_id,
                 sv.name AS service_name,
-                sv.price AS service_price,
+                sv.price AS price,
                 sv.duration_minutes AS service_duration,
                 e.employee_id,
                 CONCAT(e.first_name, ' ', e.last_name) AS employee_name
@@ -457,8 +384,9 @@ def reviewless_appointments():
             WHERE a.customer_id = %s
               AND r.review_id IS NULL
               AND a.status = 'completed'
+              AND s.salon_id = %s
             ORDER BY a.appointment_date DESC, a.start_time DESC
-        """, (customer_id,))
+        """, (customer_id,salon_id,))
         
         appointments = cursor.fetchall()
 
@@ -480,7 +408,6 @@ def reviewless_appointments():
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
-
 
 # to view how many appointments are on a specific day (calendar view)
 @appointments_bp.route('/salon/<int:salon_id>/appointments/calendar', methods=['GET'])
@@ -789,7 +716,7 @@ def get_appointments(role, entity_id):
                     t = timedelta_to_time(val)
                     appt[field] = t.strftime("%H:%M:%S")
 
-        return jsonify(appointments), 200
+        return jsonify({'appointments': appointments}), 200
 
     finally:
         cursor.close()
@@ -1181,6 +1108,173 @@ def sunday_based_availability(employee_id):
 
     except Exception as e:
         log_error(str(e), session.get("user_id"))
+        mysql.connection.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+
+@appointments_bp.route('/employees/<int:employee_id>/breaks', methods=['GET'])
+def get_employee_breaks(employee_id):
+    """
+    Get all breaks/blocked times for an employee
+    Returns time_slots where is_available = FALSE
+    """
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor(DictCursor)
+
+    try:
+        # Verify employee exists
+        cursor.execute("SELECT salon_id FROM employees WHERE employee_id = %s", (employee_id,))
+        employee = cursor.fetchone()
+        if not employee:
+            return jsonify({'error': 'Employee not found'}), 404
+
+        # Get all unavailable time slots (breaks)
+        cursor.execute("""
+            SELECT slot_id, day, start_time, end_time
+            FROM time_slots
+            WHERE employee_id = %s 
+              AND is_available = FALSE
+            ORDER BY 
+              FIELD(day, 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'),
+              start_time
+        """, (employee_id,))
+
+        breaks = cursor.fetchall()
+
+        # Convert timedelta to string if needed
+        for break_item in breaks:
+            if isinstance(break_item['start_time'], timedelta):
+                break_item['start_time'] = str(timedelta_to_time(break_item['start_time']))
+            if isinstance(break_item['end_time'], timedelta):
+                break_item['end_time'] = str(timedelta_to_time(break_item['end_time']))
+
+        return jsonify({
+            'employee_id': employee_id,
+            'salon_id': employee['salon_id'],
+            'breaks': breaks
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+
+
+@appointments_bp.route('/employees/<int:employee_id>/breaks', methods=['POST'])
+def add_employee_break(employee_id):
+    """
+    Add a break/blocked time for an employee
+    Creates a time_slot with is_available = FALSE
+    No database changes required - uses existing columns only
+    """
+    data = request.get_json()
+
+    salon_id = data.get('salon_id')
+    day = data.get('day')
+    start_time = data.get('start_time')
+    end_time = data.get('end_time')
+
+    if not all([salon_id, day, start_time, end_time]):
+        return jsonify({'error': 'Missing required fields: salon_id, day, start_time, end_time'}), 400
+
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor(DictCursor)
+
+    try:
+        # Verify employee exists and belongs to salon
+        cursor.execute("""
+            SELECT employee_id FROM employees 
+            WHERE employee_id = %s AND salon_id = %s
+        """, (employee_id, salon_id))
+        
+        if not cursor.fetchone():
+            return jsonify({'error': 'Employee not found or does not belong to this salon'}), 404
+
+        # Validate times
+        try:
+            start_dt = datetime.strptime(start_time, "%H:%M:%S").time()
+            end_dt = datetime.strptime(end_time, "%H:%M:%S").time()
+        except ValueError:
+            return jsonify({'error': 'Invalid time format. Use HH:MM:SS'}), 400
+
+        if start_dt >= end_dt:
+            return jsonify({'error': 'Start time must be before end time'}), 400
+
+        # Check for overlapping breaks on the same day
+        cursor.execute("""
+            SELECT slot_id FROM time_slots
+            WHERE employee_id = %s 
+              AND day = %s
+              AND is_available = FALSE
+              AND (
+                (start_time < %s AND end_time > %s) OR
+                (start_time >= %s AND start_time < %s)
+              )
+        """, (employee_id, day, end_time, start_time, start_time, end_time))
+
+        if cursor.fetchone():
+            return jsonify({'error': 'This break overlaps with an existing break'}), 400
+
+        # Insert the break (is_available = FALSE marks it as a break/blocked time)
+        cursor.execute("""
+            INSERT INTO time_slots (
+                salon_id, employee_id, day, start_time, end_time, is_available
+            ) VALUES (%s, %s, %s, %s, %s, FALSE)
+        """, (salon_id, employee_id, day, start_time, end_time))
+
+        mysql.connection.commit()
+        slot_id = cursor.lastrowid
+
+        return jsonify({
+            'message': 'Break added successfully',
+            'slot_id': slot_id,
+            'day': day,
+            'start_time': start_time,
+            'end_time': end_time
+        }), 201
+
+    except Exception as e:
+        mysql.connection.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+
+
+@appointments_bp.route('/employees/<int:employee_id>/breaks/<int:slot_id>', methods=['DELETE'])
+def delete_employee_break(employee_id, slot_id):
+    """
+    Delete a specific break/blocked time
+    """
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor(DictCursor)
+
+    try:
+        # Verify the slot exists and belongs to this employee
+        cursor.execute("""
+            SELECT slot_id FROM time_slots
+            WHERE slot_id = %s 
+              AND employee_id = %s 
+              AND is_available = FALSE
+        """, (slot_id, employee_id))
+
+        if not cursor.fetchone():
+            return jsonify({'error': 'Break not found'}), 404
+
+        # Delete the break
+        cursor.execute("""
+            DELETE FROM time_slots
+            WHERE slot_id = %s AND employee_id = %s
+        """, (slot_id, employee_id))
+
+        mysql.connection.commit()
+
+        return jsonify({
+            'message': 'Break removed successfully',
+            'slot_id': slot_id
+        }), 200
+
+    except Exception as e:
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:

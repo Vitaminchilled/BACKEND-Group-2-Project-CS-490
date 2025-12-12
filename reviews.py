@@ -152,7 +152,12 @@ responses:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select users.first_name, concat(left(users.last_name, 1), '.') as last_initial, reviews.rating, reviews.comment
+            select 
+                users.first_name, 
+                concat(left(users.last_name, 1), '.') as last_initial, 
+                reviews.rating, 
+                reviews.comment,
+                reviews.review_date
             from reviews
             join users on reviews.customer_id = users.user_id
             where salon_id = %s
@@ -161,7 +166,14 @@ responses:
         cursor.execute(query, (salon_id,))
         reviews = cursor.fetchall()
         cursor.close()
-        return jsonify({'reviews': reviews}), 201
+        return jsonify({
+            'reviews': [{
+                'customer_name': review[0] + ' ' + review[1],
+                "rating": review[2],
+                "comment": review[3],
+                "review_date": review[4]
+            } for review in reviews]
+        }), 201
     except Exception as e:
         log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch reviews', 'details': str(e)}), 500
@@ -198,7 +210,6 @@ def get_paginated_reviews(salon_id):
         direction = request.args.get('direction', default="desc", type=str) #high to low/new to old
         order_by = request.args.get('order_by', default="review_date", type=str) #review_date or rating
         #recency, rating, ...
-        has_img = request.args.get('has_img', default="false", type=str).lower() == "true"
 
         valid_order_by = {"review_date", "rating"}
         if order_by not in valid_order_by:
@@ -243,9 +254,6 @@ def get_paginated_reviews(salon_id):
             filters.append(rating_query)
             params.append(rating-1) #lower bound ex. above 4 max 5
             params.append(rating) #upper bound passed as arg
-
-        if has_img:
-            filters.append("r.image_url IS NOT NULL AND r.image_url != ''")
 
         where_clause = "WHERE " + " AND ".join(filters) if filters else ""
 
@@ -299,8 +307,8 @@ def get_paginated_reviews(salon_id):
                 "comment": review[4],
                 "image_url": review[5],
                 "review_date": review[6],
-                "customer_name": customer_name,
-                "customer_id": review[10],  
+                "user": customer_name,
+                "user_id": review[10],  
                 "has_replies": bool(review[7])
             })
         return jsonify({
@@ -400,44 +408,44 @@ def get_children_replies(salon_id, review_id):
 @reviews_bp.route('/appointments/<int:appointment_id>/review', methods=['POST'])
 def post_review(appointment_id):
     """
-Post a review for a completed appointment
----
-tags:
-  - Reviews
-consumes:
-  - application/json
-parameters:
-  - name: appointment_id
-    in: path
-    required: true
-    type: integer
-  - in: body
-    name: body
-    required: true
-    schema:
-      type: object
-      properties:
-        rating:
-          type: integer
-        comment:
-          type: string
-        image_url:
-          type: string
-      required:
-        - rating
-        - comment
-responses:
-  201:
-    description: Review posted successfully
-  400:
-    description: Missing fields, appointment not completed, or review already exists
-  401:
-    description: Unauthorized
-  403:
-    description: Cannot review other users' appointments
-  500:
-    description: Failed to post review
-"""
+    Post a review for a completed appointment
+    ---
+    tags:
+    - Reviews
+    consumes:
+    - application/json
+    parameters:
+    - name: appointment_id
+        in: path
+        required: true
+        type: integer
+    - in: body
+        name: body
+        required: true
+        schema:
+        type: object
+        properties:
+            rating:
+            type: integer
+            comment:
+            type: string
+            image_url:
+            type: string
+        required:
+            - rating
+            - comment
+    responses:
+    201:
+        description: Review posted successfully
+    400:
+        description: Missing fields, appointment not completed, or review already exists
+    401:
+        description: Unauthorized
+    403:
+        description: Cannot review other users' appointments
+    500:
+        description: Failed to post review
+    """
     try: 
         user_id = session.get('user_id')
         if not user_id:
@@ -446,7 +454,7 @@ responses:
         data = request.get_json()
         rating = data.get('rating')
         comment = data.get('comment')
-        image_url = data.get('image_url', None)
+        image_url = data.get('image_url', None) #no longer needed
         
         if not rating or not comment: 
             return jsonify({'error': 'Missing rating or comment'}), 400
@@ -493,37 +501,37 @@ responses:
 @reviews_bp.route('/reviews/<int:review_id>/reply', methods=['POST'])
 def post_reply(review_id):
     """
-Post a reply to a review
----
-tags:
-  - Reviews
-consumes:
-  - application/json
-parameters:
-  - name: review_id
-    in: path
-    required: true
-    type: integer
-  - in: body
-    name: body
-    required: true
-    schema:
-      type: object
-      properties:
-        reply:
-          type: string
-      required:
-        - reply
-responses:
-  201:
-    description: Reply posted successfully
-  400:
-    description: Reply cannot be empty
-  401:
-    description: Unauthorized
-  500:
-    description: Failed to post reply
-"""
+    Post a reply to a review
+    ---
+    tags:
+    - Reviews
+    consumes:
+    - application/json
+    parameters:
+    - name: review_id
+        in: path
+        required: true
+        type: integer
+    - in: body
+        name: body
+        required: true
+        schema:
+        type: object
+        properties:
+            reply:
+            type: string
+        required:
+            - reply
+    responses:
+    201:
+        description: Reply posted successfully
+    400:
+        description: Reply cannot be empty
+    401:
+        description: Unauthorized
+    500:
+        description: Failed to post reply
+    """
     try:
         user_id = session.get('user_id')
         if not user_id:
@@ -531,21 +539,94 @@ responses:
         
         data = request.get_json()
         reply = data.get('reply')
+        parent_reply_id = data.get('parent_reply_id')
+
         if not reply:
             return jsonify({'error': 'Replies cannot be empty'}), 400
         
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         
+        # find salon + owner for display name rules
+        cursor.execute("""
+            SELECT salon_id FROM reviews WHERE review_id=%s
+        """, (review_id,))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'error': 'Review not found'}), 404
+
+        salon_id = row[0]
+
+        cursor.execute("""
+            SELECT owner_id FROM salons WHERE salon_id=%s
+        """, (salon_id,))
+        owner_id = cursor.fetchone()[0]
+
+        # Insert reply
         now = datetime.now()
-        query = """
-            insert into review_replies(review_id, user_id, message, created_at)
-            values(%s, %s, %s, %s)
-        """
-        cursor.execute(query, (review_id, user_id, reply, now))
+        if parent_reply_id is None:
+            query = """
+                insert into review_replies(review_id, user_id, message, created_at)
+                values(%s, %s, %s, %s)
+            """
+            cursor.execute(query, (review_id, user_id, reply, now))
+        else:
+            query = """
+                insert into review_replies(review_id, user_id, parent_reply_id, message, created_at)
+                values(%s, %s, %s, %s, %s)
+            """
+            cursor.execute(query, (review_id, user_id, parent_reply_id, reply, now))
         mysql.connection.commit()
+
+        new_reply_id = cursor.lastrowid
+        # Fetch newly inserted reply in SAME FORMAT as get_children_replies
+        cursor.execute("""
+            SELECT 
+                rr.reply_id,
+                rr.user_id,
+                u.first_name,
+                u.last_name,
+                rr.parent_reply_id,
+                rr.message,
+                rr.created_at,
+                (
+                    SELECT EXISTS(
+                        SELECT 1
+                        FROM review_replies c
+                        WHERE c.parent_reply_id = rr.reply_id
+                    )
+                ) AS has_replies
+            FROM review_replies rr
+            LEFT JOIN users u ON rr.user_id = u.user_id
+            WHERE rr.reply_id = %s
+        """, (new_reply_id,))
+
+        row = cursor.fetchone()
         cursor.close()
-        return jsonify({'message': 'Reply posted successfully'}), 201
+
+        # Build display name (same logic as get_children_replies)
+        reply_user_id = row[1]
+        if reply_user_id == owner_id:
+            display_name = "Owner"
+        else:
+            fn = row[2] or ""
+            ln = row[3] or ""
+            display_name = f"{fn} {ln[0].upper()}." if fn and ln else fn or "Anonymous"
+
+        reply_data = {
+            "reply_id": row[0],
+            "user_id": row[1],
+            "user": display_name,
+            "parent_reply_id": row[4],
+            "message": row[5],
+            "created_at": row[6],
+            "has_replies": bool(row[7])
+        }
+
+        return jsonify({
+            'message': 'Reply posted successfully',
+            'reply': reply_data
+        }), 201
     except Exception as e:
         log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to post reply'}), 500
@@ -602,6 +683,7 @@ responses:
             delete from reviews
             where review_id = %s
         """
+        cursor.execute(query, (review_id,))
         mysql.connection.commit()
         cursor.close()
         return jsonify({'message': 'Review deleted successfully'}), 200
@@ -636,8 +718,9 @@ responses:
         cursor = mysql.connection.cursor()
 
         #find out who posted the reply
+        #customer_id doesnt exist in the table
         query = """
-            select customer_id
+            select user_id
             from review_replies
             where reply_id = %s
         """
