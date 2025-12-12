@@ -224,6 +224,9 @@ def view_appointments():
     user_type = request.args.get('role')  # 'customer' or 'salon'
     user_id = request.args.get('id')
 
+    if user_id is None:
+        user_id = session.get('user_id') #fail safe?
+
     if not all([user_type, user_id]):
         return jsonify({'error': 'Missing required parameters'}), 400
     
@@ -240,6 +243,7 @@ def view_appointments():
             cursor.execute("""
                 SELECT 
                     a.appointment_id, 
+                    a.customer_id,
                     a.appointment_date, 
                     a.start_time,
                     a.end_time,
@@ -254,7 +258,9 @@ def view_appointments():
                     sv.duration_minutes AS service_duration,
                     e.employee_id,
                     CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
-                    e.description AS employee_description
+                    e.description AS employee_description,
+                    a.image_url,
+                    a.image_after_url
                 FROM appointments a
                 JOIN salons s ON a.salon_id = s.salon_id
                 JOIN services sv ON a.service_id = sv.service_id
@@ -284,6 +290,8 @@ def view_appointments():
                     e.employee_id,
                     CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
                     e.description AS employee_description
+                    a.image_url,
+                    a.image_after_url
                 FROM appointments a
                 JOIN users u ON a.customer_id = u.user_id
                 JOIN services sv ON a.service_id = sv.service_id
@@ -1104,3 +1112,176 @@ def sunday_based_availability(employee_id):
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
+
+@appointments_bp.route('/employees/<int:employee_id>/breaks', methods=['GET'])
+def get_employee_breaks(employee_id):
+    """
+    Get all breaks/blocked times for an employee
+    Returns time_slots where is_available = FALSE
+    """
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor(DictCursor)
+
+    try:
+        # Verify employee exists
+        cursor.execute("SELECT salon_id FROM employees WHERE employee_id = %s", (employee_id,))
+        employee = cursor.fetchone()
+        if not employee:
+            return jsonify({'error': 'Employee not found'}), 404
+
+        # Get all unavailable time slots (breaks)
+        cursor.execute("""
+            SELECT slot_id, day, start_time, end_time
+            FROM time_slots
+            WHERE employee_id = %s 
+              AND is_available = FALSE
+            ORDER BY 
+              FIELD(day, 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'),
+              start_time
+        """, (employee_id,))
+
+        breaks = cursor.fetchall()
+
+        # Convert timedelta to string if needed
+        for break_item in breaks:
+            if isinstance(break_item['start_time'], timedelta):
+                break_item['start_time'] = str(timedelta_to_time(break_item['start_time']))
+            if isinstance(break_item['end_time'], timedelta):
+                break_item['end_time'] = str(timedelta_to_time(break_item['end_time']))
+
+        return jsonify({
+            'employee_id': employee_id,
+            'salon_id': employee['salon_id'],
+            'breaks': breaks
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+
+
+@appointments_bp.route('/employees/<int:employee_id>/breaks', methods=['POST'])
+def add_employee_break(employee_id):
+    """
+    Add a break/blocked time for an employee
+    Creates a time_slot with is_available = FALSE
+    No database changes required - uses existing columns only
+    """
+    data = request.get_json()
+
+    salon_id = data.get('salon_id')
+    day = data.get('day')
+    start_time = data.get('start_time')
+    end_time = data.get('end_time')
+
+    if not all([salon_id, day, start_time, end_time]):
+        return jsonify({'error': 'Missing required fields: salon_id, day, start_time, end_time'}), 400
+
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor(DictCursor)
+
+    try:
+        # Verify employee exists and belongs to salon
+        cursor.execute("""
+            SELECT employee_id FROM employees 
+            WHERE employee_id = %s AND salon_id = %s
+        """, (employee_id, salon_id))
+        
+        if not cursor.fetchone():
+            return jsonify({'error': 'Employee not found or does not belong to this salon'}), 404
+
+        # Validate times
+        try:
+            start_dt = datetime.strptime(start_time, "%H:%M:%S").time()
+            end_dt = datetime.strptime(end_time, "%H:%M:%S").time()
+        except ValueError:
+            return jsonify({'error': 'Invalid time format. Use HH:MM:SS'}), 400
+
+        if start_dt >= end_dt:
+            return jsonify({'error': 'Start time must be before end time'}), 400
+
+        # Check for overlapping breaks on the same day
+        cursor.execute("""
+            SELECT slot_id FROM time_slots
+            WHERE employee_id = %s 
+              AND day = %s
+              AND is_available = FALSE
+              AND (
+                (start_time < %s AND end_time > %s) OR
+                (start_time >= %s AND start_time < %s)
+              )
+        """, (employee_id, day, end_time, start_time, start_time, end_time))
+
+        if cursor.fetchone():
+            return jsonify({'error': 'This break overlaps with an existing break'}), 400
+
+        # Insert the break (is_available = FALSE marks it as a break/blocked time)
+        cursor.execute("""
+            INSERT INTO time_slots (
+                salon_id, employee_id, day, start_time, end_time, is_available
+            ) VALUES (%s, %s, %s, %s, %s, FALSE)
+        """, (salon_id, employee_id, day, start_time, end_time))
+
+        mysql.connection.commit()
+        slot_id = cursor.lastrowid
+
+        return jsonify({
+            'message': 'Break added successfully',
+            'slot_id': slot_id,
+            'day': day,
+            'start_time': start_time,
+            'end_time': end_time
+        }), 201
+
+    except Exception as e:
+        mysql.connection.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+
+
+@appointments_bp.route('/employees/<int:employee_id>/breaks/<int:slot_id>', methods=['DELETE'])
+def delete_employee_break(employee_id, slot_id):
+    """
+    Delete a specific break/blocked time
+    """
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor(DictCursor)
+
+    try:
+        # Verify the slot exists and belongs to this employee
+        cursor.execute("""
+            SELECT slot_id FROM time_slots
+            WHERE slot_id = %s 
+              AND employee_id = %s 
+              AND is_available = FALSE
+        """, (slot_id, employee_id))
+
+        if not cursor.fetchone():
+            return jsonify({'error': 'Break not found'}), 404
+
+        # Delete the break
+        cursor.execute("""
+            DELETE FROM time_slots
+            WHERE slot_id = %s AND employee_id = %s
+        """, (slot_id, employee_id))
+
+        mysql.connection.commit()
+
+        return jsonify({
+            'message': 'Break removed successfully',
+            'slot_id': slot_id
+        }), 200
+
+    except Exception as e:
+        mysql.connection.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+
+
+
+
+
+
