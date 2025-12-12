@@ -11,7 +11,7 @@ from utils.logerror import log_error
 salon_bp = Blueprint('salon', __name__)
 
 #Can be used on Landing to salon names and their rating
-@salon_bp.route('/api/salonData', methods=['GET'])
+@salon_bp.route('/salonData', methods=['GET'])
 def salonData():
     try:
         mysql = current_app.config['MYSQL']
@@ -49,7 +49,7 @@ def generate_iter_pages(current_page, total_pages, left_edge=2, right_edge=2, le
             last = num
     return pages
 
-@salon_bp.route('/api/salon/all', methods=['GET'])
+@salon_bp.route('/salon/all', methods=['GET'])
 def get_salons():
     try:
         mysql = current_app.config['MYSQL']
@@ -183,7 +183,7 @@ def get_salons():
         log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch salons', 'details': str(e)}), 500
     
-@salon_bp.route('/api/salon/<int:salon_id>/header', methods=['GET'])
+@salon_bp.route('/salon/<int:salon_id>/header', methods=['GET'])
 def get_salon_info(salon_id):
     try: 
         mysql = current_app.config['MYSQL']
