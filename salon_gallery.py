@@ -229,7 +229,7 @@ parameters:
   - name: employee_id
     in: formData
     type: integer
-  - name: service_id
+  - name: product_id
     in: formData
     type: integer
   - name: is_primary
@@ -246,11 +246,11 @@ responses:
     image = request.files.get('image')
     description = request.form.get('description', '')
     employee_id = request.form.get('employee_id')
-    service_id = request.form.get('service_id')
+    product_id = request.form.get('product_id')
     is_primary = request.form.get('is_primary', "false").lower() == "true"
 
     employee_id = int(employee_id) if employee_id else None
-    service_id = int(service_id) if service_id else None
+    product_id = int(product_id) if product_id else None
 
     if not image:
         return jsonify({'error': 'Image file is required'}), 400
@@ -259,6 +259,7 @@ responses:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
 
+        # Validate employee belongs to salon
         if employee_id:
             cursor.execute("""
                 SELECT employee_id FROM employees
@@ -269,17 +270,19 @@ responses:
                 cursor.close()
                 return jsonify({'error': f'Employee {employee_id} does not belong to salon {salon_id}'}), 400
 
-        if service_id:
+        # Validate product belongs to salon
+        if product_id:
             cursor.execute("""
-                SELECT service_id FROM services
-                WHERE service_id = %s AND salon_id = %s
-            """, (service_id, salon_id))
+                SELECT product_id FROM products
+                WHERE product_id = %s AND salon_id = %s
+            """, (product_id, salon_id))
 
             if not cursor.fetchone():
                 cursor.close()
-                return jsonify({'error': f'Service {service_id} does not belong to salon {salon_id}'}), 400
+                return jsonify({'error': f'Product {product_id} does not belong to salon {salon_id}'}), 400
 
-        if is_primary and not employee_id and not service_id:
+        # Handle primary image switch
+        if is_primary and not employee_id and not product_id:
             cursor.execute("""
                 SELECT image_url FROM salon_gallery
                 WHERE salon_id = %s AND is_primary = TRUE
@@ -295,13 +298,15 @@ responses:
                 WHERE salon_id = %s AND is_primary = TRUE
             """, (salon_id,))
 
+        # Upload new image
         image_url = S3Uploader.upload_image_to_s3(image)
 
+        # Insert
         cursor.execute("""
             INSERT INTO salon_gallery 
-            (salon_id, image_url, description, employee_id, service_id, is_primary, created_at, last_modified)
+            (salon_id, image_url, description, employee_id, product_id, is_primary, created_at, last_modified)
             VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
-        """, (salon_id, image_url, description, employee_id, service_id, is_primary))
+        """, (salon_id, image_url, description, employee_id, product_id, is_primary))
 
         mysql.connection.commit()
         gallery_id = cursor.lastrowid
