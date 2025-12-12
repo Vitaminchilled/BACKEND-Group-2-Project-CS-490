@@ -347,7 +347,7 @@ def reviewless_appointments(salon_id):
     # user context user_id wasnt always set so this was reliable
     customer_id = session.get('user_id')
 
-    if not customer_id:
+    if customer_id is None:
         return jsonify({'error': 'Missing customer_id parameter'}), 400
 
     try:
