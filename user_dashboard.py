@@ -1,6 +1,7 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, session
 from datetime import datetime, timedelta, time as dt_time, date
 from MySQLdb.cursors import DictCursor
+from utils.logerror import log_error
 
 user_dashboard_bp = Blueprint('user_dashboard_bp', __name__)
 
@@ -108,6 +109,7 @@ def customer_dashboard():
         return jsonify(convert_mysql_objects(response_data)), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
 
     finally:
@@ -201,6 +203,7 @@ def search_salons():
         })), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -230,6 +233,7 @@ def get_available_master_tags():
         })), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -339,6 +343,131 @@ def get_salon_details(salon_id):
         return jsonify(convert_mysql_objects(salon)), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
+
+#favorite a salon
+@user_dashboard_bp.route('/favorite_salon', methods=['POST'])
+def favorite_salon():
+    data = request.get_json()
+    customer_id = data.get('customer_id')
+    salon_id = data.get('salon_id')
+
+    if not customer_id or not salon_id:
+        return jsonify({'error': 'Missing customer_id or salon_id'}), 400
+
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor()
+
+    try:
+        #check if the salon is favorited 
+        cursor.execute("""
+            select 1 from saved_salons
+            where customer_id = %s and salon_id = %s
+        """, (customer_id, salon_id))
+        if cursor.fetchone():
+            return jsonify({'message': 'Salon already favorited'}), 200
+
+        cursor.execute("""
+            insert into saved_salons (customer_id, salon_id, saved_at)
+            values (%s, %s, now())
+        """, (customer_id, salon_id))
+        mysql.connection.commit()
+
+        return jsonify({'message': 'Salon favorited successfully'}), 201
+
+    except Exception as e:
+        log_error(str(e), session.get("user_id"))
+        mysql.connection.rollback()
+        return jsonify({'error': str(e)}), 500
+
+    finally:
+        cursor.close()
+
+#unfavorite a salon
+@user_dashboard_bp.route('/unfavorite_salon', methods=['POST'])
+def unfavorite_salon():
+    data = request.get_json()
+    customer_id = data.get('customer_id')
+    salon_id = data.get('salon_id')
+
+    if not customer_id or not salon_id:
+        return jsonify({'error': 'Missing customer_id or salon_id'}), 400
+
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor()
+
+    try:
+        cursor.execute("""
+            delete from saved_salons
+            where customer_id = %s and salon_id = %s
+        """, (customer_id, salon_id))
+        mysql.connection.commit()
+
+        return jsonify({'message': 'Salon unfavorited successfully'}), 200
+
+    except Exception as e:
+        log_error(str(e), session.get("user_id"))
+        mysql.connection.rollback()
+        return jsonify({'error': str(e)}), 500
+
+    finally:
+        cursor.close()
+
+#display the list of favorited salons
+@user_dashboard_bp.route('/favorited_salons', methods=['GET'])
+def get_favorited_salons():
+    customer_id = request.args.get('customer_id')
+
+    if not customer_id:
+        return jsonify({'error': 'Missing customer_id'}), 400
+
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor(DictCursor)
+
+    try:
+        cursor.execute("""
+            select s.salon_id, s.name, s.description, s.email, s.phone_number, 
+                   s.is_verified, s.created_at,
+                   a.address, a.city, a.state, a.postal_code,
+                   group_concat(distinct mt.name) as master_tags,
+                   group_concat(distinct t.name) as specific_tags,
+                   avg(r.rating) as average_rating,
+                   count(r.review_id) as review_count
+            from saved_salons ss
+            join salons s on ss.salon_id = s.salon_id
+            left join addresses a on s.salon_id = a.salon_id and a.entity_type = 'salon'
+            left join entity_master_tags emt on s.salon_id = emt.entity_id and emt.entity_type = 'salon'
+            left join master_tags mt on emt.master_tag_id = mt.master_tag_id
+            left join entity_tags et on s.salon_id = et.entity_id and et.entity_type = 'service'
+            left join tags t on et.tag_id = t.tag_id
+            left join reviews r on s.salon_id = r.salon_id
+            where ss.customer_id = %s
+            group by s.salon_id, s.name, s.description, s.email, s.phone_number, 
+                     s.is_verified, s.created_at, a.address, a.city, a.state, a.postal_code
+            order by s.is_verified desc, average_rating desc, s.name asc
+        """, (customer_id,))
+        
+        salons = [dict(row) for row in cursor.fetchall()]
+        
+        for salon in salons:
+            if salon['master_tags']:
+                salon['master_tags'] = list(set(salon['master_tags'].split(',')))
+            else:
+                salon['master_tags'] = []
+                
+            if salon['specific_tags']:
+                salon['specific_tags'] = list(set(salon['specific_tags'].split(',')))
+            else:
+                salon['specific_tags'] = []
+        
+        return jsonify(convert_mysql_objects({
+            'favorited_salons': salons,
+            'count': len(salons)
+        })), 200
+    except Exception as e:
+        log_error(str(e), session.get("user_id"))
+        return jsonify({'error': str(e)}), 500
+    

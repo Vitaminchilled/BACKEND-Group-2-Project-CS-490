@@ -30,7 +30,9 @@ def salonData():
         data = [dict(zip(columns, row)) for row in rows]
         return jsonify({'salons': data}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch salons', 'details': str(e)}), 500
+
     
 def generate_iter_pages(current_page, total_pages, left_edge=2, right_edge=2, left_current=2, right_current=2):
     last = 0
@@ -178,6 +180,7 @@ def get_salons():
             'iter_pages': iter_pages
         }), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch salons', 'details': str(e)}), 500
     
 @salon_bp.route('/salon/<int:salon_id>/header', methods=['GET'])
@@ -275,9 +278,10 @@ def get_salon_info(salon_id):
             'master_tags' : master_tag_list
         }), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch salon', 'details': str(e)}), 500
     
-    #send promotional emails to all customers of the salon who favorited the salon or had an appointment there
+#send promotional emails to all customers of the salon who favorited the salon or had an appointment there
 @salon_bp.route('/salon/<int:salon_id>/promotions/email', methods=['POST'])
 def send_promotional_email(salon_id):
     try:

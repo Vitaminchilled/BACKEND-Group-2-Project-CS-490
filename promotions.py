@@ -1,11 +1,31 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, session
 from datetime import datetime
+from utils.logerror import log_error
 
 promotions_bp = Blueprint('promotions', __name__)
 
 #view only active promotions
 @promotions_bp.route('/salon/<int:salon_id>/promotions', methods=['GET'])
 def get_promotions(salon_id):
+    """
+    Get active promotions for a salon
+    ---
+    tags:
+    - Promotions
+    parameters:
+    - name: salon_id
+      in: path
+      required: true
+      type: integer
+      description: Salon ID
+    responses:
+      200:
+        description: Active promotions returned successfully
+      404:
+        description: No active promotions found
+      500:
+        description: Error fetching promotions
+    """
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -40,11 +60,31 @@ def get_promotions(salon_id):
             })
         return jsonify({'salon_id': salon_id, 'active_promotions': result}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': f'Error fetching promotions: {str(e)}'}), 500
 
 #view all promotions (inactive or not)
 @promotions_bp.route('/salon/<int:salon_id>/promotions/all', methods=['GET'])
 def get_all_promotions(salon_id):
+    """
+Get all promotions for a salon (including inactive)
+---
+tags:
+  - Promotions
+parameters:
+  - name: salon_id
+    in: path
+    required: true
+    type: integer
+    description: Salon ID
+responses:
+  200:
+    description: All promotions returned successfully
+  404:
+    description: No promotions found
+  500:
+    description: Error fetching promotions
+"""
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -80,11 +120,61 @@ def get_all_promotions(salon_id):
         return jsonify({'salon_id': salon_id, 'promotions': result}), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': f'Error fetching all promotions: {str(e)}'}), 500
 
 #create a new promotion
 @promotions_bp.route('/salon/<int:salon_id>/promotions', methods=['POST'])
 def create_promotion(salon_id):
+    """
+Create a new promotion
+---
+tags:
+  - Promotions
+consumes:
+  - application/json
+parameters:
+  - name: salon_id
+    in: path
+    required: true
+    type: integer
+  - in: body
+    name: body
+    required: true
+    schema:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        promo_code:
+          type: string
+        discount_value:
+          type: number
+        is_percentage:
+          type: boolean
+          default: true
+      required:
+        - name
+        - start_date
+        - end_date
+        - promo_code
+        - discount_value
+responses:
+  201:
+    description: Promotion created successfully
+  400:
+    description: Missing required fields
+  500:
+    description: Error creating promotion
+"""
     data = request.json
     name = data.get('name')
     description = data.get('description')
@@ -112,12 +202,64 @@ def create_promotion(salon_id):
 
         return jsonify({'message': 'Promotion created successfully', 'promo_id': promo_id}), 201
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': f'Error creating promotion: {str(e)}'}), 500
     
 #edit a promotion
 @promotions_bp.route('/promotions/<int:promo_id>', methods=['PUT'])
 def edit_promotion(promo_id):
+    """
+Edit an existing promotion
+---
+tags:
+  - Promotions
+consumes:
+  - application/json
+parameters:
+  - name: promo_id
+    in: path
+    required: true
+    type: integer
+  - in: body
+    name: body
+    required: true
+    schema:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        promo_code:
+          type: string
+        discount_value:
+          type: number
+        is_percentage:
+          type: boolean
+          default: true
+      required:
+        - name
+        - start_date
+        - end_date
+        - promo_code
+        - discount_value
+responses:
+  200:
+    description: Promotion updated successfully
+  400:
+    description: Missing required fields
+  404:
+    description: Promotion not found
+  500:
+    description: Error updating promotion
+"""
     data = request.json
     name = data.get('name')
     description = data.get('description')
@@ -147,12 +289,28 @@ def edit_promotion(promo_id):
             return jsonify({'error': 'Promotion not found'}), 404
         return jsonify({'message': 'Promotion updated successfully'}), 200
     except Exception as e:
-        print("Error updating promotion:", e)
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
 
 #disable a promotion
 @promotions_bp.route('/promotions/<int:promo_id>/disable', methods=['PUT'])
 def disable_promotion(promo_id):
+    """
+Disable a promotion
+---
+tags:
+  - Promotions
+parameters:
+  - name: promo_id
+    in: path
+    required: true
+    type: integer
+responses:
+  200:
+    description: Promotion disabled successfully
+  500:
+    description: Error disabling promotion
+"""
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -167,6 +325,7 @@ def disable_promotion(promo_id):
         cursor.close()
         return jsonify({'message': 'Promotion disabled successfully'}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': f'Error disabling promotion: {str(e)}'}), 500
 
@@ -201,42 +360,5 @@ def enable_promotion(promo_id):
         cursor.close()
         return jsonify({'message': 'Promotion enabled successfully', 'promo_id': promo_id}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': f'Error enabling promotion: {str(e)}'}), 500
-
-#check if a promo code is valid and return its details (good for checkouts)
-@promotions_bp.route('/promotions/check/<string:promo_code>', methods=['GET'])
-def check_promo(promo_code):
-    try:
-        mysql = current_app.config['MYSQL']
-        cursor = mysql.connection.cursor()
-
-        query = """
-            select promo_id, salon_id, name, discount_value, is_percentage, start_date, end_date, is_active
-            from promotions
-            where promo_code = %s
-        """
-        cursor.execute(query, (promo_code,))
-        promotion = cursor.fetchone()
-        cursor.close()
-
-        if not promotion:
-            return jsonify({'valid': False, 'message': 'Promo code not found'}), 404
-        
-        curr_date = datetime.now().date()
-        start_date, end_date = promotion[5], promotion[6] 
-        is_active = bool(promotion[7])
-
-        if not is_active or not (start_date <= curr_date <= end_date):
-            return jsonify({'valid': False, 'message': 'This promotion is expired'}), 400
-        
-        return jsonify({
-            'valid': True,
-            'promo_id': promotion[0],
-            'salon_id': promotion[1],
-            'name': promotion[2],
-            'discount_value': float(promotion[3]),
-            'is_percentage': bool(promotion[4])
-        }), 200
-    
-    except Exception as e:
-        return jsonify({'error': f'Error checking promo: {str(e)}'}), 500

@@ -1,11 +1,32 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, session
 from datetime import datetime
+from utils.logerror import log_error
 
 cart_bp = Blueprint('cart', __name__)
 
 #view cart
 @cart_bp.route('/cart/<int:customer_id>/<int:salon_id>', methods=['GET'])
 def view_cart(customer_id, salon_id):
+    """
+    View cart for a customer in a salon
+    ---
+    tags:
+      - Carts
+    parameters:
+      - name: customer_id
+        in: path
+        required: true
+        type: integer
+      - name: salon_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: Cart returned
+      500:
+        description: Error fetching cart
+    """
     try:
 
         mysql = current_app.config['MYSQL']
@@ -53,11 +74,40 @@ def view_cart(customer_id, salon_id):
             })
         return jsonify({'cart': cart_list, 'total': float(total)}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Error displaying cart'}), 500
     
 #add to cart
 @cart_bp.route('/cart/add', methods=['POST'])
 def add_to_cart():
+    """
+    Add an item to the cart
+    ---
+    tags:
+      - Carts
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            customer_id:
+              type: integer
+            salon_id:
+              type: integer
+            product_id:
+              type: integer
+            quantity:
+              type: integer
+    responses:
+      201:
+        description: Product added to cart
+      500:
+        description: Error adding product
+    """
     try:
         data = request.json
         customer_id = data.get('customer_id')
@@ -102,11 +152,33 @@ def add_to_cart():
         cursor.close()
         return jsonify({'message': 'Product added to cart', 'cart_id': cart_id}), 201
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Error adding product'}), 500
 
 #remove from cart
 @cart_bp.route('/cart/remove', methods=['DELETE'])
 def remove_from_cart():
+    """
+    Remove an item from the cart
+    ---
+    tags:
+      - Carts
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        required: true
+        schema:
+            type: object
+            properties:
+              cart_item_id:
+                type: integer
+    responses:
+      200:
+        description: Item removed
+      500:
+        description: Error removing product
+    """
     try:
         data = request.json
         cart_item_id = data.get('cart_item_id')
@@ -124,18 +196,42 @@ def remove_from_cart():
         cursor.close()
         return jsonify({'message': 'Item removed from cart'}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Error removing product'}), 500
     
 #update quantity
 @cart_bp.route('/cart/update', methods=['PUT'])
 def update_cart_quantity():
+    """
+    Update cart item quantity
+    ---
+    tags:
+      - Carts
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            cart_item_id:
+              type: integer
+            quantity:
+              type: integer
+    responses:
+      200:
+        description: Quantity updated
+      500:
+        description: Error updating cart
+    """
     try:
         data = request.json
         cart_item_id = data.get('cart_item_id')
         quantity = data.get('quantity')
 
-        if not all([cart_item_id, quantity]):
-            return jsonify({'error': 'cart_item_id and quantity required'}), 400
+        if cart_item_id is None or quantity is None:
+          return jsonify({'error': 'cart_item_id and quantity required'}), 400
         
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -161,5 +257,6 @@ def update_cart_quantity():
         cursor.close()
         return jsonify({'message': 'Cart quantity updated'}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Error updating cart'}), 500
     

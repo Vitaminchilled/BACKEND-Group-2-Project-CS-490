@@ -1,6 +1,8 @@
 from flask import Blueprint, request, jsonify, current_app
-from datetime import datetime, timedelta, time as dt_time
+from datetime import datetime, timedelta, time as dt_time, date
 from MySQLdb.cursors import DictCursor
+from utils.logerror import log_error
+from flask import session
 
 appointments_bp = Blueprint('appointments_bp', __name__)
 
@@ -140,17 +142,6 @@ def book_appointment():
         if overlap:
             return jsonify({'error': 'Time slot overlaps with another appointment'}), 400
 
-        # inserting into time slot, idk if this is neccesary, 
-        # might end up removing time_slot table from database down the line...
-        # cursor.execute("""
-        #     INSERT INTO time_slots (
-        #         salon_id, employee_id, day, start_time, end_time, is_available
-        #     ) VALUES (%s, %s, %s, %s, %s, FALSE)
-        # """, (salon_id, employee_id, appointment_date, start_time, end_time_str, 1))
-        # time_slot_id = cursor.lastrowid
-
-        # time_slot_id = time_slot_id['slot_id']
-
         cursor.execute("""
             SELECT slot_id
             FROM time_slots
@@ -187,6 +178,7 @@ def book_appointment():
         }), 201
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
 
@@ -343,11 +335,13 @@ def reviewless_appointments(salon_id):
       400:
         description: Missing customer ID
     """
-    customer_id = request.args.get('customer_id')
+    #customer_id = request.args.get('customer_id')
+    # user context user_id wasnt always set so this was reliable
+    customer_id = session.get('user_id')
 
     if not customer_id:
         return jsonify({'error': 'Missing customer_id parameter'}), 400
-    
+
     try:
         customer_id = int(customer_id)
     except ValueError:
@@ -440,6 +434,7 @@ def total_appointments(salon_id):
         return jsonify(result), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -588,6 +583,7 @@ def update_appointment():
         }), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
 
@@ -650,6 +646,7 @@ def cancel_appointment():
         return jsonify({'message': 'Appointment cancelled successfully'}), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
@@ -916,6 +913,7 @@ def employee_weekly_availability(employee_id):
         }), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
@@ -1101,6 +1099,7 @@ def sunday_based_availability(employee_id):
         }), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
