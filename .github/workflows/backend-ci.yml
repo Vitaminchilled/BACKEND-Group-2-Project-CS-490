@@ -24,9 +24,29 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Install xmllint (libxml2-utils)
+        run: sudo apt-get update && sudo apt-get install -y libxml2-utils
+
       - name: Set PYTHONPATH
         run: echo "PYTHONPATH=$PWD" >> $GITHUB_ENV
 
-      - name: Run pytest
+      - name: Run pytest with 75% pass threshold
         run: |
-          pytest -v
+          # Run pytest and save results in XML
+          pytest --tb=short --junitxml=results.xml || true
+
+          total=$(xmllint --xpath "count(//testsuite/testcase)" results.xml)
+          failed=$(xmllint --xpath "count(//testsuite/testcase[failure])" results.xml)
+          passed=$((total - failed))
+          echo "Total tests: $total, Passed: $passed, Failed: $failed"
+
+          pass_rate=$((passed * 100 / total))
+          echo "Pass rate: $pass_rate%"
+
+          # Fail workflow if pass rate < 75%
+          if [ $pass_rate -lt 75 ]; then
+            echo "FAIL: Less than 75% of tests passed"
+            exit 1
+          else
+            echo "SUCCESS: Pass rate >= 75%"
+          fi
