@@ -142,17 +142,6 @@ def book_appointment():
         if overlap:
             return jsonify({'error': 'Time slot overlaps with another appointment'}), 400
 
-        # inserting into time slot, idk if this is neccesary, 
-        # might end up removing time_slot table from database down the line...
-        # cursor.execute("""
-        #     INSERT INTO time_slots (
-        #         salon_id, employee_id, day, start_time, end_time, is_available
-        #     ) VALUES (%s, %s, %s, %s, %s, FALSE)
-        # """, (salon_id, employee_id, appointment_date, start_time, end_time_str, 1))
-        # time_slot_id = cursor.lastrowid
-
-        # time_slot_id = time_slot_id['slot_id']
-
         cursor.execute("""
             SELECT slot_id
             FROM time_slots
@@ -208,78 +197,6 @@ def debug_test():
 
 # This is the appointments view function, this is the function you'll use when you want to
 # get data about appointments, maybe things like viewing appointment history and etc
-'''@appointments_bp.route('/appointments/view', methods=['GET'])
-def view_appointments():
-    """
-    View appointments for a customer or salon
-    ---
-    tags:
-      - Appointments
-    parameters:
-      - name: role
-        in: query
-        required: true
-        type: string
-        description: customer or salon
-      - name: id
-        in: query
-        required: true
-        type: integer
-        description: user or salon ID
-    responses:
-      200:
-        description: Appointments returned
-      400:
-        description: Missing required parameters
-    """
-    user_type = request.args.get('role')  # 'customer' or 'salon'
-    user_id = request.args.get('id')
-
-    if not all([user_type, user_id]):
-        return jsonify({'error': 'Missing required parameters'}), 400
-    
-    try:
-        user_id = int(user_id)
-    except ValueError:
-        return jsonify({'error': 'ID must be an integer'}), 400
-    
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor(DictCursor)
-    
-    try:
-        if user_type == 'customer':
-            cursor.execute("""
-                SELECT a.appointment_id, a.appointment_date, a.status,
-                       s.name AS salon_name, sv.name AS service_name, sv.price as service_price
-                FROM appointments a
-                JOIN salons s ON a.salon_id = s.salon_id
-                JOIN services sv ON a.service_id = sv.service_id
-                WHERE a.customer_id = %s
-                ORDER BY a.appointment_date DESC
-            """, (user_id,))
-        elif user_type == 'salon':
-            cursor.execute("""
-                SELECT a.appointment_id, a.appointment_date, a.status,
-                       u.first_name, u.last_name, sv.name AS service_name
-                FROM appointments a
-                JOIN users u ON a.customer_id = u.user_id
-                JOIN services sv ON a.service_id = sv.service_id
-                WHERE a.salon_id = %s
-                ORDER BY a.appointment_date DESC
-            """, (user_id,))
-        else:
-            return jsonify({'error': 'Invalid role specified'}), 400
-        
-        appointments = cursor.fetchall()
-        return jsonify({'appointments': appointments}), 200
-        
-    except Exception as e:
-        log_error(str(e), session.get("user_id"))
-        return jsonify({'error': str(e)}), 500
-    finally:
-        cursor.close()
-'''
-
 @appointments_bp.route('/appointments/view', methods=['GET'])
 def view_appointments():
     """
@@ -327,13 +244,13 @@ def view_appointments():
                     a.start_time,
                     a.end_time,
                     a.status,
-                    a.notes,
+                    a.notes AS customer_notes,
                     s.salon_id,
                     s.name AS salon_name,
                     sv.service_id,
                     sv.name AS service_name,
                     sv.description AS service_description,
-                    sv.price AS service_price,
+                    sv.price AS price,
                     sv.duration_minutes AS service_duration,
                     e.employee_id,
                     CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
@@ -399,8 +316,8 @@ def view_appointments():
         cursor.close()
 
 
-@appointments_bp.route('/appointments/reviewless', methods=['GET'])
-def reviewless_appointments():
+@appointments_bp.route('/appointments/reviewless/<int:salon_id>', methods=['GET'])
+def reviewless_appointments(salon_id):
     """
     Get customer appointments that don't have reviews yet
     ---
@@ -418,11 +335,13 @@ def reviewless_appointments():
       400:
         description: Missing customer ID
     """
-    customer_id = request.args.get('customer_id')
+    #customer_id = request.args.get('customer_id')
+    # user context user_id wasnt always set so this was reliable
+    customer_id = session.get('user_id')
 
     if not customer_id:
         return jsonify({'error': 'Missing customer_id parameter'}), 400
-    
+
     try:
         customer_id = int(customer_id)
     except ValueError:
@@ -440,12 +359,12 @@ def reviewless_appointments():
                 a.start_time,
                 a.end_time,
                 a.status,
-                a.notes,
+                a.notes as customer_notes,
                 s.salon_id,
                 s.name AS salon_name,
                 sv.service_id,
                 sv.name AS service_name,
-                sv.price AS service_price,
+                sv.price AS price,
                 sv.duration_minutes AS service_duration,
                 e.employee_id,
                 CONCAT(e.first_name, ' ', e.last_name) AS employee_name
@@ -457,8 +376,9 @@ def reviewless_appointments():
             WHERE a.customer_id = %s
               AND r.review_id IS NULL
               AND a.status = 'completed'
+              AND s.salon_id = %s
             ORDER BY a.appointment_date DESC, a.start_time DESC
-        """, (customer_id,))
+        """, (customer_id,salon_id,))
         
         appointments = cursor.fetchall()
 
@@ -480,7 +400,6 @@ def reviewless_appointments():
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
-
 
 # to view how many appointments are on a specific day (calendar view)
 @appointments_bp.route('/salon/<int:salon_id>/appointments/calendar', methods=['GET'])
@@ -789,7 +708,7 @@ def get_appointments(role, entity_id):
                     t = timedelta_to_time(val)
                     appt[field] = t.strftime("%H:%M:%S")
 
-        return jsonify(appointments), 200
+        return jsonify({'appointments': appointments}), 200
 
     finally:
         cursor.close()
