@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, session
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 from flask import current_app
 from flasgger import swag_from
 from utils.logerror import log_error
@@ -54,10 +54,34 @@ def login():
         return jsonify({'error': 'Invalid username or password'}), 401
     
     #check if password is correct
-    user_id, hashed_password = user
+    '''user_id, hashed_password = user
     if not check_password_hash(hashed_password, password):
         log_error("Invalid login attempt for username: {}".format(username), None)
+        return jsonify({'error': 'Invalid username or password'}), 401'''
+    user_id, stored_password = user
+
+    if not stored_password.startswith("scrypt:"):
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+
+    new_hashed_password = generate_password_hash(
+        stored_password,
+        method="scrypt"
+    )
+
+    cursor.execute(
+        "UPDATE users SET password = %s WHERE user_id = %s",
+        (new_hashed_password, user_id)
+    )
+    mysql.connection.commit()
+    cursor.close()
+
+    stored_password = new_hashed_password
+
+    if not check_password_hash(stored_password, password):
+        log_error("Invalid login attempt for username: {}".format(username), None)
         return jsonify({'error': 'Invalid username or password'}), 401
+
     
     session['user_id'] = user_id
     session['username'] = username
