@@ -126,56 +126,6 @@ responses:
         cursor.close()
         return jsonify({'reviews': result, "review_count": review_count}), 200
     except Exception as e:
-        log_error(str(e), session.get("user_id"))
-        return jsonify({'error': 'Failed to fetch reviews', 'details': str(e)}), 500
-
-@reviews_bp.route('/salon/<int:salon_id>/dashboard/reviews', methods=['GET'])
-def recent_three(salon_id):
-    """
-Get recent 3 reviews for salon dashboard
----
-tags:
-  - Reviews
-parameters:
-  - name: salon_id
-    in: path
-    required: true
-    type: integer
-    description: Salon ID
-responses:
-  201:
-    description: Recent reviews retrieved successfully
-  500:
-    description: Error fetching reviews
-"""
-    try:
-        mysql = current_app.config['MYSQL']
-        cursor = mysql.connection.cursor()
-        query = """
-            select 
-                users.first_name, 
-                concat(left(users.last_name, 1), '.') as last_initial, 
-                reviews.rating, 
-                reviews.comment,
-                reviews.review_date
-            from reviews
-            join users on reviews.customer_id = users.user_id
-            where salon_id = %s
-            limit 3;
-        """
-        cursor.execute(query, (salon_id,))
-        reviews = cursor.fetchall()
-        cursor.close()
-        return jsonify({
-            'reviews': [{
-                'customer_name': review[0] + ' ' + review[1],
-                "rating": review[2],
-                "comment": review[3],
-                "review_date": review[4]
-            } for review in reviews]
-        }), 201
-    except Exception as e:
-        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch reviews', 'details': str(e)}), 500
 
 def generate_iter_pages(current_page, total_pages, left_edge=2, right_edge=2, left_current=2, right_current=2):
@@ -320,7 +270,6 @@ def get_paginated_reviews(salon_id):
             'iter_pages': iter_pages
         }), 200
     except Exception as e:
-        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch reviews', 'details': str(e)}), 500
     finally:
         cursor.close()
@@ -400,10 +349,57 @@ def get_children_replies(salon_id, review_id):
             'reply_count': reply_count #all replies but this query returns one level of replies
         }), 200
     except Exception as e:
-        log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch replies', 'details': str(e)}), 500
     finally:
         cursor.close()
+
+@reviews_bp.route('/salon/<int:salon_id>/dashboard/reviews', methods=['GET'])
+def recent_three(salon_id):
+    """
+Get recent 3 reviews for salon dashboard
+---
+tags:
+  - Reviews
+parameters:
+  - name: salon_id
+    in: path
+    required: true
+    type: integer
+    description: Salon ID
+responses:
+  201:
+    description: Recent reviews retrieved successfully
+  500:
+    description: Error fetching reviews
+"""
+    try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+        query = """
+            select 
+                users.first_name, 
+                concat(left(users.last_name, 1), '.') as last_initial, 
+                reviews.rating, 
+                reviews.comment,
+                reviews.review_date
+            from reviews
+            join users on reviews.customer_id = users.user_id
+            where salon_id = %s
+            limit 3;
+        """
+        cursor.execute(query, (salon_id,))
+        reviews = cursor.fetchall()
+        cursor.close()
+        return jsonify({
+            'reviews': [{
+                'customer_name': review[0] + ' ' + review[1],
+                "rating": review[2],
+                "comment": review[3],
+                "review_date": review[4]
+            } for review in reviews]
+        }), 201
+    except Exception as e:
+        return jsonify({'error': 'Failed to fetch reviews', 'details': str(e)}), 500
 
 @reviews_bp.route('/appointments/<int:appointment_id>/review', methods=['POST'])
 def post_review(appointment_id):
@@ -462,6 +458,7 @@ def post_review(appointment_id):
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         
+        #user must have completed an appointment
         query = """
             select salon_id, customer_id, status
             from appointments
@@ -474,7 +471,8 @@ def post_review(appointment_id):
             return jsonify({'error': 'You can only review your own appointments'}), 403
         if status != 'completed':
             return jsonify({'error': 'You can only review completed appointments'}), 400
-
+        
+        #user cannot review the same appointment twice
         query = """
             select review_id
             from reviews
@@ -494,9 +492,8 @@ def post_review(appointment_id):
         cursor.close()
         return jsonify({'message': 'Review posted successfully'}), 201
     except Exception as e:
-        log_error(str(e), session.get("user_id"))
+        current_app.logger.error(f"Error adding review: {e}")
         return jsonify({'error': 'Failed to post review'}), 500
-
 
 @reviews_bp.route('/reviews/<int:review_id>/reply', methods=['POST'])
 def post_reply(review_id):
@@ -718,7 +715,6 @@ responses:
         cursor = mysql.connection.cursor()
 
         #find out who posted the reply
-        #customer_id doesnt exist in the table
         query = """
             select user_id
             from review_replies
@@ -745,5 +741,7 @@ responses:
         return jsonify({'message': 'Reply deleted successfully'}), 200
     except Exception as e:
         log_error(str(e), session.get("user_id"))
-        return jsonify({'error': 'Failed to delete reply'}), 500
-    
+        import traceback
+        tb = traceback.format_exc()
+        print(tb)  # Logs full traceback to console
+        return jsonify({'error': str(e), 'traceback': tb}), 500
