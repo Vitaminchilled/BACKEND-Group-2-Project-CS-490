@@ -401,7 +401,6 @@ def getSavedPaymentInfo():
         log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Error retrieving saved payment info'}), 500
 
-
 @cart_bp.route('/cart/processPayment', methods=['POST'])
 def processPayment():
     """
@@ -660,9 +659,76 @@ def processPayment():
         conn.rollback()
         cursor.close()
         log_error(str(e), session.get("user_id"))
-        print(f"Payment processing error: {str(e)}")  # For debugging
+        print(f"Payment processing error: {str(e)}")
         return jsonify({'error': f'Error processing payment: {str(e)}'}), 500
     
+@cart_bp.route('/cart/validatePromo', methods=['POST'])
+def validatePromo():
+    """
+    Validates a promo code for a specific salon
+    ---
+    tags:
+      - Carts
+    responses:
+      200:
+        description: Promo code validation result
+      400:
+        description: Missing required fields
+      500:
+        description: Error validating promo code
+    """
+    try:
+        data = request.get_json()
+        promo_code = data.get('promo_code')
+        salon_id = data.get('salon_id')
+        
+        if not promo_code or not salon_id:
+            return jsonify({'error': 'Missing promo_code or salon_id'}), 400
+        
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+        
+        query = """
+            SELECT 
+                promo_id,
+                name,
+                discount_value,
+                is_percentage,
+                start_date,
+                end_date
+            FROM promotions
+            WHERE salon_id = %s 
+                AND promo_code = %s
+                AND is_active = TRUE
+                AND start_date <= CURDATE()
+                AND end_date >= CURDATE()
+        """
+        
+        cursor.execute(query, (salon_id, promo_code.upper()))
+        result = cursor.fetchone()
+        cursor.close()
+        
+        if result:
+            cols = ['promo_id', 'name', 'discount_value', 'is_percentage', 'start_date', 'end_date']
+            promo_data = dict(zip(cols, result))
+            
+            return jsonify({
+                'valid': True,
+                'promo_id': promo_data['promo_id'],
+                'name': promo_data['name'],
+                'discount_value': float(promo_data['discount_value']),
+                'is_percentage': bool(promo_data['is_percentage'])
+            }), 200
+        else:
+            return jsonify({
+                'valid': False,
+                'message': 'Invalid or expired promo code'
+            }), 200
+            
+    except Exception as e:
+        log_error(str(e), session.get("user_id"))
+        return jsonify({'error': 'Error validating promo code'}), 500
+
 
 @cart_bp.route('/cart/allAvailableRewards', methods=['POST'])
 def allAvailableRewards():
@@ -691,6 +757,8 @@ def allAvailableRewards():
         mysql = current_app.config['MYSQL']
         conn = mysql.connection
         cursor = conn.cursor()
+        
+        salon_ids = [int(sid) for sid in salon_ids]
         salon_ids_placeholders = ','.join(['%s'] * len(salon_ids))
         
         sql_query = f"""
@@ -702,7 +770,8 @@ def allAvailableRewards():
                 lp.name AS reward_name,
                 lp.points_required,
                 lp.discount_value,
-                lp.is_percentage
+                lp.is_percentage,
+                GROUP_CONCAT(t.name SEPARATOR ',') as associated_tags
             FROM 
                 salons s
             LEFT JOIN 
@@ -711,8 +780,15 @@ def allAvailableRewards():
                 loyalty_programs lp ON s.salon_id = lp.salon_id
                     AND (lp.end_date IS NULL OR lp.end_date >= CURDATE())
                     AND lp.points_required <= COALESCE(cp.available_points, 0)
+            LEFT JOIN
+                entity_tags et ON et.entity_type = 'loyalty' AND et.entity_id = lp.loyalty_program_id
+            LEFT JOIN
+                tags t ON et.tag_id = t.tag_id
             WHERE 
                 s.salon_id IN ({salon_ids_placeholders})
+            GROUP BY
+                lp.loyalty_program_id, s.salon_id, s.name, cp.available_points, 
+                lp.name, lp.points_required, lp.discount_value, lp.is_percentage
             ORDER BY
                 s.salon_id, lp.points_required
         """
@@ -731,17 +807,22 @@ def allAvailableRewards():
                 salon_rewards[salon_id] = {
                     'salon_id': salon_id,
                     'salon_name': row_dict['salon_name'],
-                    'available_points': row_dict['available_points'],
+                    'available_points': row_dict['available_points'] or 0,
                     'rewards': []
                 }
             
             if row_dict['loyalty_program_id'] is not None:
+                tags_list = []
+                if row_dict['associated_tags']:
+                    tags_list = row_dict['associated_tags'].split(',')
+                
                 salon_rewards[salon_id]['rewards'].append({
                     'loyalty_program_id': row_dict['loyalty_program_id'],
                     'reward_name': row_dict['reward_name'],
                     'points_required': row_dict['points_required'],
                     'discount_value': float(row_dict['discount_value']),
-                    'is_percentage': bool(row_dict['is_percentage'])
+                    'is_percentage': bool(row_dict['is_percentage']),
+                    'tags': tags_list
                 })
         
         cursor.close()
