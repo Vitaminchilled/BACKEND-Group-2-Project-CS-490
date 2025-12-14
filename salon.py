@@ -232,7 +232,8 @@ def get_salon_info(salon_id):
                     left join master_tags m 
                     on m.master_tag_id = e.master_tag_id
                     where e.entity_id = s.salon_id and e.entity_type = 'salon'
-                ) as master_tags
+                ) as master_tags,
+                s.is_verified
             from salons s
             left join addresses ad
             on ad.salon_id = s.salon_id
@@ -272,7 +273,8 @@ def get_salon_info(salon_id):
                 "state": salon[9],
                 "postal_code": salon[10],
                 "country": salon[11],
-                "average_rating": salon[12]
+                "average_rating": salon[12],
+                "is_verified": bool(salon[14]) if salon[14] is not None else False
             },
             'tags' : tag_list,
             'master_tags' : master_tag_list
@@ -315,3 +317,102 @@ def send_promotional_email(salon_id):
     except Exception as e:
         log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to send promotional emails', 'details': str(e)}), 500
+
+        # GET operating hours
+@salon_bp.route('/salon/<int:salon_id>/operating-hours', methods=['GET'])
+def get_operating_hours(salon_id):
+    try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+        
+        query = """
+            SELECT day, open_time, close_time, is_closed
+            FROM operating_hours
+            WHERE salon_id = %s
+            ORDER BY FIELD(day, 'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')
+        """
+        cursor.execute(query, (salon_id,))
+        rows = cursor.fetchall()
+        cursor.close()
+        
+        hours = []
+        for row in rows:
+            hours.append({
+                'day': row[0],
+                'open_time': str(row[1]),
+                'close_time': str(row[2]),
+                'is_closed': bool(row[3])
+            })
+        
+        return jsonify({'hours': hours}), 200
+    except Exception as e:
+        # Print to console instead of log_error for debugging
+        print(f"ERROR in get_operating_hours: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to fetch operating hours: {str(e)}'}), 500
+
+# POST/UPDATE operating hours
+@salon_bp.route('/salon/<int:salon_id>/operating-hours', methods=['POST'])
+def save_operating_hours(salon_id):
+    from datetime import datetime
+    
+    try:
+        data = request.get_json()
+        hours = data.get('hours', [])
+        
+        if not hours:
+            return jsonify({'error': 'No hours provided'}), 400
+        
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+        
+        # Delete existing hours
+        cursor.execute("DELETE FROM operating_hours WHERE salon_id = %s", (salon_id,))
+        
+        # Insert new hours
+        for hour in hours:
+            day = hour['day']
+            open_time_str = hour['open_time']
+            close_time_str = hour['close_time']
+            is_closed = hour['is_closed']
+            
+            # Parse and format times properly
+            try:
+                # Try parsing with seconds
+                open_time = datetime.strptime(open_time_str, "%H:%M:%S").time()
+            except ValueError:
+                try:
+                    # Try parsing without seconds
+                    open_time = datetime.strptime(open_time_str, "%H:%M").time()
+                except ValueError:
+                    print(f"Invalid open_time format: {open_time_str}")
+                    continue
+            
+            try:
+                # Try parsing with seconds
+                close_time = datetime.strptime(close_time_str, "%H:%M:%S").time()
+            except ValueError:
+                try:
+                    # Try parsing without seconds
+                    close_time = datetime.strptime(close_time_str, "%H:%M").time()
+                except ValueError:
+                    print(f"Invalid close_time format: {close_time_str}")
+                    continue
+            
+            query = """
+                INSERT INTO operating_hours (salon_id, day, open_time, close_time, is_closed)
+                VALUES (%s, %s, %s, %s, %s)
+            """
+            cursor.execute(query, (salon_id, day, open_time, close_time, is_closed))
+        
+        mysql.connection.commit()
+        cursor.close()
+        
+        return jsonify({'message': 'Operating hours saved successfully'}), 200
+    except Exception as e:
+        mysql.connection.rollback()
+        print(f"ERROR in save_operating_hours: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to save operating hours: {str(e)}'}), 500

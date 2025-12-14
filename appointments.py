@@ -224,9 +224,6 @@ def view_appointments():
     user_type = request.args.get('role')  # 'customer' or 'salon'
     user_id = request.args.get('id')
 
-    if user_id is None:
-        user_id = session.get('user_id') #fail safe?
-
     if not all([user_type, user_id]):
         return jsonify({'error': 'Missing required parameters'}), 400
     
@@ -243,7 +240,6 @@ def view_appointments():
             cursor.execute("""
                 SELECT 
                     a.appointment_id, 
-                    a.customer_id,
                     a.appointment_date, 
                     a.start_time,
                     a.end_time,
@@ -258,9 +254,7 @@ def view_appointments():
                     sv.duration_minutes AS service_duration,
                     e.employee_id,
                     CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
-                    e.description AS employee_description,
-                    a.image_url,
-                    a.image_after_url
+                    e.description AS employee_description
                 FROM appointments a
                 JOIN salons s ON a.salon_id = s.salon_id
                 JOIN services sv ON a.service_id = sv.service_id
@@ -290,8 +284,6 @@ def view_appointments():
                     e.employee_id,
                     CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
                     e.description AS employee_description
-                    a.image_url,
-                    a.image_after_url
                 FROM appointments a
                 JOIN users u ON a.customer_id = u.user_id
                 JOIN services sv ON a.service_id = sv.service_id
@@ -343,13 +335,11 @@ def reviewless_appointments(salon_id):
       400:
         description: Missing customer ID
     """
-    #customer_id = request.args.get('customer_id')
-    # user context user_id wasnt always set so this was reliable
-    customer_id = session.get('user_id')
+    customer_id = request.args.get('customer_id')
 
     if not customer_id:
         return jsonify({'error': 'Missing customer_id parameter'}), 400
-
+    
     try:
         customer_id = int(customer_id)
     except ValueError:
@@ -442,7 +432,6 @@ def total_appointments(salon_id):
         return jsonify(result), 200
 
     except Exception as e:
-        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -591,7 +580,6 @@ def update_appointment():
         }), 200
 
     except Exception as e:
-        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
 
@@ -654,7 +642,6 @@ def cancel_appointment():
         return jsonify({'message': 'Appointment cancelled successfully'}), 200
 
     except Exception as e:
-        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
@@ -1107,11 +1094,19 @@ def sunday_based_availability(employee_id):
         }), 200
 
     except Exception as e:
-        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
+
+def timedelta_to_time(td):
+    """Convert timedelta to time object"""
+    total_seconds = int(td.total_seconds())
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    seconds = total_seconds % 60
+    return dt_time(hour=hours, minute=minutes, second=seconds)
+
 
 @appointments_bp.route('/employees/<int:employee_id>/breaks', methods=['GET'])
 def get_employee_breaks(employee_id):

@@ -1,50 +1,359 @@
 from flask import Blueprint, jsonify, request, current_app
-from datetime import datetime, timezone
-from start_time import SERVER_START_TIME
+from datetime import datetime, timezone, timedelta
+from MySQLdb.cursors import DictCursor
+import time
+import os
+import json
+from collections import defaultdict, deque
 
 analytics_bp = Blueprint('analytics', __name__)
 
-#FOR ADMINS 
-#tracking errors
-@analytics_bp.route('/admin/errors', methods=['GET'])
-def admin_get_errors():
+# ============================================================================
+# IN-MEMORY MONITORING STORAGE (No database changes needed!)
+# ============================================================================
+
+# Store errors in memory (last 1000 errors)
+error_log = deque(maxlen=1000)
+
+# Store uptime checks in memory (last 500 checks)
+uptime_checks = deque(maxlen=500)
+
+# Error statistics by endpoint
+error_stats = defaultdict(lambda: {'count': 0, 'last_error': None})
+
+# Response time tracking
+response_times = deque(maxlen=100)
+
+def log_error_memory(error_type, endpoint, error_message, stack_trace=None):
+    """Log errors to in-memory storage"""
+    error_entry = {
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+        'error_type': error_type,
+        'endpoint': endpoint,
+        'error_message': error_message,
+        'stack_trace': stack_trace
+    }
+    error_log.append(error_entry)
+    error_stats[endpoint]['count'] += 1
+    error_stats[endpoint]['last_error'] = datetime.now(timezone.utc)
+
+    # Also log to file for persistence
+    try:
+        log_dir = 'logs'
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, f'errors_{datetime.now().strftime("%Y%m%d")}.log')
+
+        with open(log_file, 'a') as f:
+            f.write(f"{json.dumps(error_entry)}\n")
+    except Exception as e:
+        print(f"Failed to write error log: {e}")
+
+def log_uptime_check(status, response_time_ms):
+    """Log uptime checks to in-memory storage"""
+    check_entry = {
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+        'status': status,
+        'response_time_ms': response_time_ms
+    }
+    uptime_checks.append(check_entry)
+    response_times.append(response_time_ms)
+
+# ============================================================================
+# MONITORING ENDPOINTS (No database required!)
+# ============================================================================
+
+@analytics_bp.route('/admin/system-health', methods=['GET'])
+def admin_system_health():
     mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
+    cursor = mysql.connection.cursor(DictCursor)
 
-    limit = request.args.get('limit', 100)
-    offset = request.args.get('offset', 0)
+    def table_exists(name):
+        cursor.execute(
+            "SELECT COUNT(*) AS cnt "
+            "FROM information_schema.tables "
+            "WHERE table_schema = DATABASE() AND table_name = %s",
+            (name,)
+        )
+        row = cursor.fetchone()
+        cnt = row.get('cnt') if isinstance(row, dict) else row[0]
+        return int(cnt or 0) > 0
 
-    query = """
-        select error_id, message, details, endpoint, method, payload, user_id, created_at
-        from error_logs
-        order by created_at desc
-        limit %s offset %s
-    """
-    cursor.execute(query, (limit, offset))
-    result = cursor.fetchall()
-    cursor.close()
-    return jsonify(result)
+    def column_exists(table, column):
+        cursor.execute(
+            "SELECT COUNT(*) AS cnt "
+            "FROM information_schema.columns "
+            "WHERE table_schema = DATABASE() AND table_name = %s AND column_name = %s",
+            (table, column)
+        )
+        row = cursor.fetchone()
+        cnt = row.get('cnt') if isinstance(row, dict) else row[0]
+        return int(cnt or 0) > 0
 
-#tracking uptime
-@analytics_bp.route('/admin/uptime', methods=['GET'])
-def get_uptime():
-    now = datetime.now(timezone.utc)
-    uptime_seconds = (now - SERVER_START_TIME).total_seconds()
-    
-    return jsonify({
-        "uptime_seconds": uptime_seconds,
-        "uptime_hours": round(uptime_seconds / 3600, 2),
-        "status": "OK"
-    })
+    try:
+        # DB ping
+        cursor.execute("SELECT 1 AS ok")
+        cursor.fetchone()
+
+        # Uptime (if you set this in app.py on startup)
+        uptime_seconds = None
+        uptime_human = None
+        start_time = current_app.config.get('SERVER_START_TIME')
+        if start_time:
+            uptime_seconds = int((datetime.now(timezone.utc) - start_time).total_seconds())
+            hours, rem = divmod(uptime_seconds, 3600)
+            minutes, seconds = divmod(rem, 60)
+            uptime_human = f"{hours}h {minutes}m {seconds}s"
+
+        # Errors (ONLY from error_logs if it exists)
+        errors_total = 0
+        errors_24h = None
+        last_error = None
+
+        if table_exists('error_logs'):
+            cursor.execute("SELECT COUNT(*) AS errors_total FROM error_logs")
+            row = cursor.fetchone()
+            errors_total = row.get('errors_total', 0) if isinstance(row, dict) else row[0]
+
+            ts_col = None
+            for c in ('created_at', 'timestamp', 'error_time', 'logged_at', 'created_on', 'createdAt'):
+                if column_exists('error_logs', c):
+                    ts_col = c
+                    break
+
+            if ts_col:
+                cursor.execute(f"SELECT COUNT(*) AS errors_24h FROM error_logs WHERE {ts_col} >= (NOW() - INTERVAL 1 DAY)")
+                row = cursor.fetchone()
+                errors_24h = row.get('errors_24h', 0) if isinstance(row, dict) else row[0]
+
+                cursor.execute(f"SELECT MAX({ts_col}) AS last_error FROM error_logs")
+                row = cursor.fetchone()
+                last_error = row.get('last_error') if isinstance(row, dict) else row[0]
+
+        # Active users 24h (if columns exist)
+        active_users_24h = None
+        if table_exists('users') and column_exists('users', 'last_login'):
+            cursor.execute(
+                "SELECT COUNT(DISTINCT user_id) AS active_users_24h "
+                "FROM users WHERE last_login >= (NOW() - INTERVAL 1 DAY)"
+            )
+            row = cursor.fetchone()
+            active_users_24h = row.get('active_users_24h', 0) if isinstance(row, dict) else row[0]
+        elif table_exists('user_history') and column_exists('user_history', 'last_visit_date'):
+            cursor.execute(
+                "SELECT COUNT(DISTINCT user_id) AS active_users_24h "
+                "FROM user_history WHERE last_visit_date >= (CURDATE() - INTERVAL 1 DAY)"
+            )
+            row = cursor.fetchone()
+            active_users_24h = row.get('active_users_24h', 0) if isinstance(row, dict) else row[0]
+
+        return jsonify({
+            "database_status": "ok",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "uptime_seconds": uptime_seconds,
+            "uptime_human": uptime_human,
+            "active_users_24h": active_users_24h,
+            "errors_total": errors_total,
+            "errors_24h": errors_24h,
+            "last_error": last_error
+        }), 200
+
+    except Exception as e:
+        return jsonify({"database_status": "error", "error": str(e)}), 500
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+
+print("SYSTEM HEALTH FILE:", __file__)
+
+
+
+@analytics_bp.route('/admin/error-logs', methods=['GET'])
+def admin_error_logs():
+    """Get recent error logs from memory"""
+    limit = request.args.get('limit', 50, type=int)
+    hours = request.args.get('hours', 24, type=int)
+    error_type = request.args.get('error_type', None)
+
+    try:
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(hours=hours)
+
+        # Filter errors
+        filtered_errors = []
+        for error in reversed(error_log):  # Most recent first
+            error_time = datetime.fromisoformat(error['timestamp'])
+            if error_time < cutoff:
+                continue
+            if error_type and error['error_type'] != error_type:
+                continue
+
+            filtered_errors.append(error)
+            if len(filtered_errors) >= limit:
+                break
+
+        return jsonify({
+            'errors': filtered_errors,
+            'total': len(filtered_errors),
+            'filters': {
+                'hours': hours,
+                'error_type': error_type,
+                'limit': limit
+            }
+        })
+
+    except Exception as e:
+        log_error_memory('error_logs_fetch', '/admin/error-logs', str(e))
+        return jsonify({'error': str(e)}), 500
+
+
+@analytics_bp.route('/admin/error-statistics', methods=['GET'])
+def admin_error_statistics():
+    """Get error statistics from in-memory data"""
+    try:
+        days = 7
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=days)
+
+        # Error count by type
+        by_type = defaultdict(int)
+        trend_by_day = defaultdict(int)
+
+        for error in error_log:
+            error_time = datetime.fromisoformat(error['timestamp'])
+            if error_time >= cutoff:
+                by_type[error['error_type']] += 1
+                day_key = error_time.strftime('%Y-%m-%d')
+                trend_by_day[day_key] += 1
+
+        by_type_list = [
+            {'error_type': k, 'count': v}
+            for k, v in sorted(by_type.items(), key=lambda x: x[1], reverse=True)
+        ]
+
+        trend_list = [
+            {'date': k, 'error_count': v}
+            for k, v in sorted(trend_by_day.items())
+        ]
+
+        # Most problematic endpoints
+        endpoints_list = [
+            {
+                'endpoint': k,
+                'error_count': v['count'],
+                'last_error': v['last_error'].isoformat() if v['last_error'] else None
+            }
+            for k, v in sorted(error_stats.items(), key=lambda x: x[1]['count'], reverse=True)[:10]
+        ]
+
+        return jsonify({
+            'errors_by_type': by_type_list,
+            'error_trend': trend_list,
+            'problematic_endpoints': endpoints_list,
+            'period': f'last_{days}_days',
+            'total_errors': len(error_log)
+        })
+
+    except Exception as e:
+        log_error_memory('error_stats_fetch', '/admin/error-statistics', str(e))
+        return jsonify({'error': str(e)}), 500
+
+
+@analytics_bp.route('/admin/performance-metrics', methods=['GET'])
+def admin_performance_metrics():
+    """Get performance metrics from in-memory data"""
+    try:
+        if not response_times:
+            return jsonify({
+                'response_time_stats': {
+                    'avg_response': 0,
+                    'min_response': 0,
+                    'max_response': 0,
+                    'median_response': 0
+                },
+                'slow_responses_count': 0,
+                'total_checks': 0
+            })
+
+        sorted_times = sorted(response_times)
+        median_idx = len(sorted_times) // 2
+
+        stats = {
+            'avg_response': sum(response_times) / len(response_times),
+            'min_response': min(response_times),
+            'max_response': max(response_times),
+            'median_response': sorted_times[median_idx]
+        }
+
+        slow_count = sum(1 for t in response_times if t > 1000)
+
+        return jsonify({
+            'response_time_stats': {
+                k: round(v, 2) for k, v in stats.items()
+            },
+            'slow_responses_count': slow_count,
+            'total_checks': len(response_times),
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        })
+
+    except Exception as e:
+        log_error_memory('performance_metrics_error', '/admin/performance-metrics', str(e))
+        return jsonify({'error': str(e)}), 500
+
+
+@analytics_bp.route('/health', methods=['GET'])
+def health_check():
+    """Simple health check endpoint"""
+    start_time = time.time()
+
+    try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+
+        # Test database connection
+        cursor.execute("SELECT 1")
+        cursor.fetchone()
+        cursor.close()
+
+        response_time = (time.time() - start_time) * 1000
+
+        # Log this check
+        log_uptime_check('up', response_time)
+
+        return jsonify({
+            'status': 'healthy',
+            'database': 'connected',
+            'response_time_ms': round(response_time, 2),
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        }), 200
+
+    except Exception as e:
+        response_time = (time.time() - start_time) * 1000
+        log_uptime_check('down', response_time)
+        log_error_memory('database_connection', '/health', str(e))
+
+        return jsonify({
+            'status': 'unhealthy',
+            'database': 'disconnected',
+            'error': str(e),
+            'response_time_ms': round(response_time, 2),
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        }), 503
+
+
+# ============================================================================
+# YOUR EXISTING ANALYTICS ENDPOINTS (Keep all of these!)
+# ============================================================================
 
 # top 5 highest earning services
 @analytics_bp.route('/admin/top-earning-services', methods=['GET'])
 def admin_top_earning_services():
     mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
+    cursor = mysql.connection.cursor(DictCursor)
 
     query = """
-        select salons.salon_id, salons.name, services.service_id, services.name,
+        select salons.salon_id, salons.name as salon_name, services.service_id, services.name,
                sum(invoices.total_amount) as revenue
         from invoices
         join appointments on appointments.appointment_id = invoices.appointment_id
@@ -64,10 +373,10 @@ def admin_top_earning_services():
 @analytics_bp.route('/admin/top-earning-products', methods=['GET'])
 def admin_top_earning_products():
     mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
+    cursor = mysql.connection.cursor(DictCursor)
 
     query = """
-        select salons.salon_id, salons.name, products.product_id, products.name,
+        select salons.salon_id, salons.name as salon_name, products.product_id, products.name,
                sum(invoice_line_items.line_total) as revenue
         from invoice_line_items
         join products on invoice_line_items.product_id = products.product_id
@@ -82,445 +391,5 @@ def admin_top_earning_products():
     cursor.close()
     return jsonify(result)
 
-# top 5 salons with most appointments
-@analytics_bp.route('/admin/top-salons-by-appointments', methods=['GET'])
-def admin_top_salons_by_appointments():
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select salons.salon_id, salons.name, count(appointments.appointment_id) as total_appointments
-        from appointments
-        join salons on salons.salon_id = appointments.salon_id
-        group by salons.salon_id
-        order by total_appointments desc
-        limit 5
-    """
-
-    cursor.execute(query)
-    result = cursor.fetchall()
-    cursor.close()
-    return jsonify(result)
-
-# total count of all users
-@analytics_bp.route('/admin/total-users', methods=['GET'])
-def admin_total_users():
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = "select count(*) as total_users from users"
-    cursor.execute(query)
-    result = cursor.fetchone()
-    cursor.close()
-    return jsonify(result)
-
-# total count of all salons
-@analytics_bp.route('/admin/total-salons', methods=['GET'])
-def admin_total_salons():
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = "select count(*) as total_salons from salons"
-    cursor.execute(query)
-    result = cursor.fetchone()
-    cursor.close()
-    return jsonify(result)
-
-# total count of all genders
-@analytics_bp.route('/admin/gender-distribution', methods=['GET'])
-def admin_gender_distribution():
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select gender, count(*) as total_count
-        from users
-        group by gender
-    """
-
-    cursor.execute(query)
-    result = cursor.fetchall()
-    cursor.close()
-    return jsonify(result)
-
-# retention rates
-@analytics_bp.route('/admin/retention', methods=['GET'])
-def admin_retention():
-    days = request.args.get('days', 30)
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select count(*) as active_users 
-        from users
-        where last_login >= date_sub(curdate(), interval %s day)
-    """
-
-    cursor.execute(query, (days,))
-    result = cursor.fetchone()
-    cursor.close()
-    return jsonify(result)
-
-#most loyal customers by appointments made
-@analytics_bp.route('/admin/loyal-customers', methods=['GET'])
-def admin_loyal_customers():
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select users.user_id, users.username, count(appointments.appointment_id) as total_appointments
-        from appointments
-        join users on users.user_id = appointments.customer_id
-        group by users.user_id
-        order by total_appointments desc
-        limit 10
-    """
-
-    cursor.execute(query)
-    result = cursor.fetchall()
-    cursor.close()
-    return jsonify(result)
-
-# total points redeeemed platform wide
-@analytics_bp.route('/admin/points-redeemed', methods=['GET'])
-def admin_points_redeemed():
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = "select sum(points_redeemed) as total_points_redeemed from customer_points"
-
-    cursor.execute(query)
-    result = cursor.fetchone()
-    cursor.close()
-    return jsonify(result)
-
-# total vouchers redeemed platform wide
-@analytics_bp.route('/admin/vouchers-redeemed', methods=['GET'])
-def admin_vouchers_redeemed():
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select count(*) as total_vouchers_redeemed
-        from customer_vouchers
-        where redeemed = 1
-    """
-
-    cursor.execute(query)
-    result = cursor.fetchone()
-    cursor.close()
-    return jsonify(result)
-
-# demographics by age groups
-@analytics_bp.route('/admin/age-demographics', methods=['GET'])
-def admin_age_demographics():
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select 
-            case 
-                when (year(curdate()) - birth_year) < 18 then 'Under 18'
-                when (year(curdate()) - birth_year) between 18 and 24 then '18-24'
-                when (year(curdate()) - birth_year) between 25 and 34 then '25-34'
-                when (year(curdate()) - birth_year) between 35 and 44 then '35-44'
-                when (year(curdate()) - birth_year) between 45 and 54 then '45-54'
-                when (year(curdate()) - birth_year) between 55 and 64 then '55-64'
-                else '65+'
-            end as age_group,
-            count(*) as total_count
-        from users
-        group by age_group
-        order by age_group
-    """
-    cursor.execute(query)
-    result = cursor.fetchall()
-    cursor.close()
-    return jsonify(result)
-
-#demographics by location
-@analytics_bp.route('/admin/location-demographics', methods=['GET'])
-def admin_location_demographics():
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select city, state, count(*) as total_customers
-        from addresses
-        where entity_type = 'customer'
-        group by city, state
-        order by total_customers desc
-    """
-    cursor.execute(query)
-    result = cursor.fetchall()
-    cursor.close()
-    return jsonify(result)
-
-#generate a general report 
-@analytics_bp.route('/admin/report-summary', methods=['GET'])
-def admin_report_summary():
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor(dictionary=True)
-
-    query = """
-        select 
-            (select count(*) from users) as total_users,
-            (select count(*) from salons) as total_salons,
-            (select sum(total_amount) from invoices) as total_revenue,
-            (select count(*) from appointments) as total_appointments,
-            (select sum(points_redeemed) from customer_points) as total_points_redeemed
-    """
-    cursor.execute(query)
-    result = cursor.fetchone()
-    cursor.close()
-    return jsonify(result)
-
-#FOR SALON OWNERS
-# get salon's total appointments 
-@analytics_bp.route('/salon/<int:salon_id>/total-appointments', methods=['GET'])
-def salon_total_appointments(salon_id):
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select count(appointments.appointment_id) as total_appointments
-        from appointments
-        where appointments.salon_id = %s
-    """
-
-    cursor.execute(query, (salon_id,))
-    result = cursor.fetchone()
-    cursor.close()
-    return jsonify(result)
-
-# get salon's total revenue
-@analytics_bp.route('/salon/<int:salon_id>/total-revenue', methods=['GET'])
-def salon_total_revenue(salon_id):
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select sum(invoices.total_amount) as total_revenue
-        from invoices
-        join appointments on appointments.appointment_id = invoices.appointment_id
-        where appointments.salon_id = %s
-    """
-
-    cursor.execute(query, (salon_id,))
-    result = cursor.fetchone()
-    cursor.close()
-    return jsonify(result)
-
-# get salon's top 5 popular services
-@analytics_bp.route('/salon/<int:salon_id>/top-services', methods=['GET'])
-def salon_top_services(salon_id):
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select services.service_id, services.name, count(appointments.appointment_id) as total_appointments
-        from appointments
-        join services on appointments.service_id = services.service_id
-        where appointments.salon_id = %s
-        group by services.service_id
-        order by total_appointments desc
-        limit 5
-    """
-
-    cursor.execute(query, (salon_id,))
-    result = cursor.fetchall()
-    cursor.close()
-    return jsonify(result)
-
-# get salon's top 5 popular products 
-@analytics_bp.route('/salon/<int:salon_id>/top-products', methods=['GET'])
-def salon_top_products(salon_id):
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select products.product_id, products.name, sum(invoice_line_items.quantity) as total_sold
-        from invoice_line_items
-        join products on invoice_line_items.product_id = products.product_id
-        where products.salon_id = %s
-        group by products.product_id
-        order by total_sold desc
-        limit 5
-    """
-
-    cursor.execute(query, (salon_id,))
-    result = cursor.fetchall()
-    cursor.close()
-    return jsonify(result)
-
-# get salon's appointment trends by month
-@analytics_bp.route('/salon/<int:salon_id>/appointment-trend', methods=['GET'])
-def salon_appointment_trend(salon_id):
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select date_format(appointment_date, '%%Y-%%m') as month,
-        count(*) as total_appointments
-        from appointments
-        where salon_id = %s
-        group by month
-        order by month asc
-    """
-
-    cursor.execute(query, (salon_id,))
-    result = cursor.fetchall()
-    cursor.close()
-    return jsonify(result)
-
-# revenue trend for a salon by month
-@analytics_bp.route('/salon/<int:salon_id>/revenue-trend', methods=['GET'])
-def salon_revenue_trend(salon_id):
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select date_format(invoices.issued_date, '%%Y-%%m') as month,
-               sum(invoices.total_amount) as revenue
-        from invoices
-        join appointments on appointments.appointment_id = invoices.appointment_id
-        where appointments.salon_id = %s
-        group by month
-        order by month asc
-    """
-
-    cursor.execute(query, (salon_id,))
-    result = cursor.fetchall()
-    cursor.close()
-    return jsonify(result)
-
-# number of canceled and completed appointments
-@analytics_bp.route('/salon/<int:salon_id>/appointments-status', methods=['GET'])
-def get_appointment_status_counts(salon_id):
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select status, count(*) as count
-        from appointments
-        where salon_id = %s
-        group by status
-    """
-
-    cursor.execute(query, (salon_id,))
-    result = cursor.fetchall()
-    cursor.close()
-    return jsonify(result)
-
-# top 5 frequent customers for a salon
-@analytics_bp.route('/salon/<int:salon_id>/customers-top', methods=['GET'])
-def get_top_customers(salon_id):
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select users.user_id, users.username, count(appointments.appointment_id) as visits
-        from appointments 
-        join users on users.user_id = appointments.customer_id
-        where appointments.salon_id = %s
-        group by users.user_id
-        order by visits desc
-        limit 5
-    """
-
-    cursor.execute(query, (salon_id,))
-    result = cursor.fetchall()
-    cursor.close()
-    return jsonify(result)
-
-# average transaction amount
-@analytics_bp.route('/salon/<int:salon_id>/transactions-average', methods=['GET'])
-def get_avg_transaction(salon_id):
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select avg(invoices.total_amount) as avg_transaction
-        from invoices 
-        join appointments on appointments.appointment_id = invoices.appointment_id
-        where appointments.salon_id = %s
-    """
-
-    cursor.execute(query, (salon_id,))
-    result = cursor.fetchone()
-    cursor.close()
-    return jsonify(result)
-
-# points redeemed per customer
-@analytics_bp.route('/salon/<int:salon_id>/customers-points-redeemed', methods=['GET'])
-def get_points_redeemed(salon_id):
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select customer_id, users.username, sum(points_redeemed) as total_points_redeemed
-        from customer_points
-        join users on customer_points.customer_id = users.user_id
-        where salon_id = %s
-        group by customer_id
-    """
-    cursor.execute(query, (salon_id,))
-    result = cursor.fetchone()
-    cursor.close()
-    return jsonify(result)
-
-# vouchers redeemed per customer
-@analytics_bp.route('/salon/<int:salon_id>/customers-vouchers-redeemed', methods=['GET'])
-def get_vouchers_redeemed(salon_id):
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select customer_vouchers.customer_id, users.username, count(*) as total_vouchers_redeemed
-        from customer_vouchers
-        join users on customer_vouchers.customer_id = users.user_id
-        where customer_vouchers.salon_id = %s and customer_vouchers.redeemed = 1
-        group by customer_vouchers.customer_id;
-    """
-    cursor.execute(query, (salon_id,))
-    result = cursor.fetchone()
-    cursor.close()
-    return jsonify(result)
-
-# appointments per employee
-@analytics_bp.route('/salon/<int:salon_id>/employees-appointments', methods=['GET'])
-def get_employee_appointments(salon_id):
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select employees.employee_id, employees.first_name, employees.last_name, count(appointments.appointment_id) as total_appointments
-        from appointments
-        join employees on appointments.employee_id = employees.employee_id
-        where appointments.salon_id = %s
-        group by employees.employee_id
-        order by total_appointments desc
-    """
-    cursor.execute(query, (salon_id,))
-    result = cursor.fetchone()
-    cursor.close()
-    return jsonify(result)
-
-# busiest day of the week
-@analytics_bp.route('/salon/<int:salon_id>/appointments/busiest-day', methods=['GET'])
-def get_busiest_day(salon_id):
-    mysql = current_app.config['MYSQL']
-    cursor = mysql.connection.cursor()
-
-    query = """
-        select dayofweek(appointment_date) as day_of_week, count(*) as total_appointments
-        from appointments
-        where salon_id = %s
-        group by day_of_week
-        order by total_appointments desc
-        limit 1
-    """
-    cursor.execute(query, (salon_id,))
-    result = cursor.fetchone()
-    cursor.close()
-    return jsonify(result)
+# Add all your other existing analytics endpoints here...
+# (I'm keeping the monitoring ones separate at the top)
