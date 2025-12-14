@@ -7,7 +7,7 @@ from flask import session
 appointments_bp = Blueprint('appointments_bp', __name__)
 
 # THIS FUNCTION IS SUPER IMPROTANT: some of the time values in the data for some reason returns
-# timedelta, so this function below converts that to something that can be manipulated and etc.
+# timedelta, so this function below converts that to something that can be manipulated
 def timedelta_to_time(td):
     total_seconds = int(td.total_seconds())
     hours = total_seconds // 3600
