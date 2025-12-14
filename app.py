@@ -54,8 +54,6 @@ swagger_template = {
     "basePath": "/"
 }
 
-Swagger(app, template=swagger_template)
-
 analytics_bp = Blueprint('analytics', __name__)
 
 #FOR ADMINS
@@ -693,6 +691,8 @@ app.register_blueprint(analytics_bp)
 app.register_blueprint(notifications_bp)
 
 scheduled_appointments = set()
+
+Swagger(app, template=swagger_template)
 
 # send customer's email updates for appointments 24 hours before the appointment
 def send_appointment_reminder():
