@@ -35,7 +35,7 @@ mysql = MySQL(app)
 mail = Mail(app)
 app.config['MYSQL'] = mysql
 
-app.config[SERVER_START_TIME] = datetime.now(timezone.utc)
+app.config['SERVER_START_TIME'] = datetime.now(timezone.utc)
 
 swagger_template = {
     "swagger": "2.0",
