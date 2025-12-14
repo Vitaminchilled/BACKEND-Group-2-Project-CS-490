@@ -163,11 +163,31 @@ def add_loyalty(salon_id):
     start_date = data.get('start_date')
     end_date = data.get('end_date')
 
-    if not all([name, tag_names, points_required, discount_value, start_date, end_date]) or is_percentage is None:
-        return jsonify({"error": "Missing required fields"}), 400
+    required_fields = {
+      "name": name,
+      "tag_names": tag_names,
+      "points_required": points_required,
+      "discount_value": discount_value,
+      "start_date": start_date,
+      "end_date": end_date,
+      "is_percentage": is_percentage
+    }
+
+    missing_fields = [
+      field for field, value in required_fields.items() 
+      if value is None or (isinstance(value, str) and value.strip() == "")
+    ]
+
+    if missing_fields:
+      current_app.logger.warning(f"Add loyalty failed - missing fields: {missing_fields}")
+      return jsonify({"error": "Missing required fields", "missing_fields": missing_fields}), 400
+
+    # remove the old all() check entirely
+    if not isinstance(tag_names, list):
+      return jsonify({"error": "tag_names must be a list"}), 400
     
     if not isinstance(tag_names, list):
-        return jsonify({"error": "tag_names must be a list"}), 400
+      return jsonify({"error": "tag_names must be a list"}), 400
    
     try:
         mysql = current_app.config['MYSQL']
@@ -190,6 +210,7 @@ def add_loyalty(salon_id):
         cursor.close()
         return jsonify({"message": "Loyalty program added successfully"}), 201
     except Exception as e:
+        current_app.logger.error(f"Failed to add loyalty program: {e}", exc_info=True)
         log_error(str(e), session.get("user_id"))
         return jsonify({"error": "Failed to add loyalty program"}), 500 
 

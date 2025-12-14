@@ -631,62 +631,104 @@ def pay_cart():
 @payment_bp.route('/payments/history/<int:customer_id>', methods=['GET'])
 def payment_history(customer_id):
     """
-    Fetch full payment history for a customer  
-    ---
-    tags:
-      - Payments
-    parameters:
-      - name: customer_id
-        in: path
-        required: true
-        description: Customer ID
-        schema:
-          type: integer
-    responses:
-      200:
-        description: Payment history returned
-      401:
-        description: Unauthorized access
-      404:
-        description: No payments found
-      500:
-        description: Internal server error
+    Fetch full payment history for a customer
     """
-    user_id = session.get('user_id')
-    if user_id != customer_id:
-        return jsonify({'error': 'Unauthorized'}), 401
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
 
         query = """
-            select invoice_id, appointment_id, issued_date, subtotal_amount, tax_amount, total_amount, status
-            from invoices
-            where customer_id = %s
-            order by issued_date desc
+            SELECT
+                i.invoice_id,           
+                i.appointment_id,      
+                i.issued_date,            
+                i.subtotal_amount,      
+                i.tax_amount,          
+                i.total_amount,        
+                i.status,                 
+
+                ili.line_item_id,          
+                ili.item_type,        
+                ili.quantity,  
+                ili.unit_price,  
+                ili.line_total,       
+
+                p.product_id,          
+                p.name,
+                p.salon_id,
+                s.name as salon_name
+            FROM invoices i
+            JOIN invoice_line_items ili
+                ON i.invoice_id = ili.invoice_id
+            LEFT JOIN products p
+                ON ili.product_id = p.product_id
+            LEFT JOIN salons s
+                ON s.salon_id = p.salon_id
+            WHERE i.customer_id = %s
+            ORDER BY i.issued_date DESC, i.invoice_id DESC
         """
+
         cursor.execute(query, (customer_id,))
-        payments = cursor.fetchall()
+        rows = cursor.fetchall()
         cursor.close()
 
-        if not payments:
+        if not rows:
             return jsonify({'message': 'No payment history found'}), 404
 
-        result = []
-        for payment in payments:
-            result.append({
-                'invoice_id': payment[0],
-                'appointment_id': payment[1],
-                'issued_date': payment[2].strftime('%Y-%m-%d'),
-                'subtotal': float(payment[3]),
-                'tax': float(payment[4]),
-                'total': float(payment[5]),
-                'status': payment[6]
-            })
-        return jsonify({'customer_id': customer_id, 'payments': result}), 200
+        invoices = {}
+
+        for row in rows:
+            invoice_id = row[0]
+
+            issued_date = row[2]
+            if hasattr(issued_date, 'strftime'):
+                issued_date = issued_date.strftime('%Y-%m-%d')
+
+            # Create invoice once
+            if invoice_id not in invoices:
+                invoices[invoice_id] = {
+                    'invoice_id': invoice_id,
+                    'appointment_id': row[1],
+                    'issued_date': issued_date,
+                    'subtotal': float(row[3]),
+                    'tax': float(row[4]),
+                    'total': float(row[5]),
+                    'status': row[6],
+                    'items': []
+                }
+
+            # Add line item
+            line_item_id = row[7]
+            if line_item_id:
+                item = {
+                    'line_item_id': line_item_id,
+                    'type': row[8],
+                    'quantity': int(row[9]),
+                    'unit_price': float(row[10]),
+                    'line_total': float(row[11])
+                }
+
+                # Product details
+                if row[8] == 'product':
+                    item['product'] = {
+                        'product_id': row[12],
+                        'name': row[13],
+                        'salon_id': row[14],
+                        'salon_name': row[15]
+                    }
+
+                invoices[invoice_id]['items'].append(item)
+
+        return jsonify({
+            'customer_id': customer_id,
+            'payments': list(invoices.values())
+        }), 200
+
     except Exception as e:
         log_error(str(e), session.get("user_id"))
-        return jsonify({'error': f'Error fetching payment history: {str(e)}'}), 500
+        return jsonify({
+            'error': f'Error fetching payment history: {str(e)}'
+        }), 500
     
 @payment_bp.route('/payments/refund/<int:invoice_id>', methods=['POST'])
 def refund_payment(invoice_id):
