@@ -2,7 +2,7 @@ name: Backend CI
 
 on:
   push:
-    branches: [ "main", "dev" ]
+    branches: [ "main", "dev", "LIVETEST Vtwo" ]
   pull_request:
     branches: [ "main", "dev" ]
 
