@@ -731,9 +731,10 @@ def send_appointment_reminder():
 
                 scheduled_appointments.add(appointment_id)
 
-scheduler = BackgroundScheduler()
-scheduler.add_job(send_appointment_reminder, 'interval', hours=8)
-scheduler.start()
+
 
 if __name__ == '__main__':
     app.run(debug=True)
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(send_appointment_reminder, 'interval', hours=8)
+    scheduler.start()
