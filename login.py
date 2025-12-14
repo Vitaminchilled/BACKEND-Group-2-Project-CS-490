@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, session
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 from flask import current_app
 from flasgger import swag_from
 from utils.logerror import log_error
