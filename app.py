@@ -156,7 +156,7 @@ def admin_system_health():
         # Count errors in last 24 hours from audit_logs
         query_errors = """
             select count(*) as errors_24h
-            from error_logs
+            from audit_logs
             where operation = 'DELETE' 
             and changed_at >= date_sub(now(), interval 24 hour)
         """
@@ -165,7 +165,7 @@ def admin_system_health():
         errors_24h = errors_result['errors_24h'] if errors_result else 0
 
         # Count total audit log entries (as activity indicator)
-        query_activity = "select count(*) as total_logs from error_logs"
+        query_activity = "select count(*) as total_logs from audit_logs"
         cursor.execute(query_activity)
         activity_result = cursor.fetchone()
         total_logs = activity_result['total_logs'] if activity_result else 0
