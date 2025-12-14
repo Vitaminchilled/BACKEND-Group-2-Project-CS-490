@@ -1,11 +1,15 @@
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify, session, current_app, url_for
 from werkzeug.security import check_password_hash
-from flask import current_app
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from flasgger import swag_from
+from utils.logerror import log_error
+from utils.emails import send_email
 from utils.logerror import log_error
 
 login_bp = Blueprint('login', __name__)
 
+#works with login may lose some of the login stuff
+#backend intended so they'll have to look it over
 @login_bp.route('/login', methods=['POST'])
 def login():
     """
@@ -51,6 +55,7 @@ def login():
     #check if user exists
     if not user:
         cursor.close()
+        session.clear()
         log_error("Invalid login attempt for username: {}".format(username), None)
         return jsonify({'error': 'Invalid username or password'}), 401
     
@@ -58,6 +63,7 @@ def login():
     user_id, hashed_password = user
     if not check_password_hash(hashed_password, password):
         cursor.close()
+        session.clear()
         log_error("Invalid login attempt for username: {}".format(username), None)
         return jsonify({'error': 'Invalid username or password'}), 401
     
@@ -157,3 +163,45 @@ def logout():
     """
     session.clear()
     return jsonify({'message': 'Logout successful'}), 200
+
+@login_bp.route('/forgot-password', methods=['POST'])
+def forgot_password():
+    data = request.get_json()
+    email = data.get("email")
+
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+    try:  
+      mysql = current_app.config['MYSQL']
+      cursor = mysql.connection.cursor()
+      cursor.execute("select user_id from users where email = %s", (email,))
+      user = cursor.fetchone()
+      cursor.close()
+
+      if not user:
+        return jsonify({"message": "If the email exists, a reset link will be sent"}), 200
+
+      user_id = user[0]
+
+      #generate token and link
+      serializer = URLSafeTimedSerializer(current_app.config["SECRET_KEY"])
+      token = serializer.dumps({"user_id": user_id}, salt="password-reset-salt")
+      reset_url = url_for("login.reset_password", token=token, _external=True)
+
+      #send email
+      subject = "Password Reset Request"
+      body = f"""
+      We received a request to reset your password.
+      Click the link below to reset it:
+
+      {reset_url}
+
+      This link expires in 30 minutes.
+      """
+
+      send_email(to=email, subject=subject, body=body)
+
+      return jsonify({"message": "If the email exists, a reset link will be sent"}), 200
+    except Exception as e:
+      log_error(str(e), session.get("user_id"))
+      return jsonify({"error": "This email does not exist"}), 500

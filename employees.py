@@ -1,12 +1,30 @@
 from flask import Blueprint, request, jsonify, session
 from flask import current_app
 from datetime import datetime
+from utils.logerror import log_error
 import json
 
 employees_bp = Blueprint('employees', __name__)
 
 @employees_bp.route('/salon/<int:salon_id>/employees', methods=['GET'])
 def get_employees(salon_id):
+    """
+    Get all employees for a salon (including tags & salary)
+    ---
+    tags:
+      - Employees
+    parameters:
+      - name: salon_id
+        in: path
+        required: true
+        type: integer
+        description: The salon ID
+    responses:
+      200:
+        description: List of employees returned successfully
+      500:
+        description: Error occurred while fetching employees
+    """
     try: 
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -68,10 +86,47 @@ def get_employees(salon_id):
         cursor.close()
         return jsonify({'employees': result}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while fetching employees."}), 500
 
 @employees_bp.route('/salon/<int:salon_id>/employees', methods=['POST'])
 def add_employee(salon_id):
+    """
+    Add a new employee to a salon
+    ---
+    tags:
+      - Employees
+    consumes:
+      - application/json
+    parameters:
+      - in: path
+        name: salon_id
+        required: true
+        type: integer
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            first_name:
+              type: string
+            last_name:
+              type: string
+            description:
+              type: string
+            tags:
+              type: array
+              items:
+                type: string
+    responses:
+      201:
+        description: Employee added successfully
+      400:
+        description: Missing required fields or invalid tag
+      500:
+        description: Internal server error
+    """
     data = request.get_json()
     first_name = data.get('first_name')
     last_name = data.get('last_name')
@@ -111,10 +166,50 @@ def add_employee(salon_id):
 
         return jsonify({"message": "Employee added successfully", "employee_id": employee_id}), 201
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while adding the employee."}), 500
     
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>', methods=['PUT'])
 def edit_employee(salon_id, employee_id):
+    """
+    Edit an existing employee
+    ---
+    tags:
+      - Employees
+    consumes:
+      - application/json
+    parameters:
+      - name: salon_id
+        in: path
+        type: integer
+        required: true
+      - name: employee_id
+        in: path
+        type: integer
+        required: true
+      - in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            first_name:
+              type: string
+            last_name:
+              type: string
+            description:
+              type: string
+            tags:
+              type: array
+              items:
+                type: string
+    responses:
+      200:
+        description: Employee updated successfully
+      400:
+        description: Missing required fields or invalid tag
+      500:
+        description: Internal server error
+    """
     data = request.get_json()
     first_name = data['first_name']
     last_name = data['last_name']
@@ -160,11 +255,32 @@ def edit_employee(salon_id, employee_id):
         return jsonify({"message": "Employee updated successfully"}), 200
     except Exception as e:
         current_app.logger.error(f"Error updating employee {employee_id}: {e}")
+        log_error(str(e), session.get("user_id"))
         cursor.close()
         return jsonify({"error": "An error occurred while updating the employee."}), 500
 
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>', methods=['DELETE'])
 def delete_employee(salon_id, employee_id):
+    """
+    Delete an employee and all related data
+    ---
+    tags:
+      - Employees
+    parameters:
+      - name: salon_id
+        in: path
+        type: integer
+        required: true
+      - name: employee_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Employee deleted successfully
+      500:
+        description: Internal server error
+    """
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -203,11 +319,49 @@ def delete_employee(salon_id, employee_id):
         return jsonify({"message": "Employee deleted successfully"}), 200
     except Exception as e:
         current_app.logger.error(f"Error updating employee {employee_id}: {e}")
+        log_error(str(e), session.get("user_id"))
         cursor.close()
         return jsonify({"error": "An error occurred while deleting the employee."}), 500
     
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/timeslots', methods=['POST'])
 def add_timeslot(salon_id, employee_id):
+    """
+    Add a new timeslot for an employee
+    ---
+    tags:
+      - Employees - Time Slots
+    consumes:
+      - application/json
+    parameters:
+      - name: salon_id
+        in: path
+        type: integer
+        required: true
+      - name: employee_id
+        in: path
+        type: integer
+        required: true
+      - in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            day:
+              type: string
+            start_time:
+              type: string
+              description: Format HH:MM:SS
+            end_time:
+              type: string
+              description: Format HH:MM:SS
+    responses:
+      201:
+        description: Timeslot added successfully
+      400:
+        description: Missing required fields or invalid slot
+      500:
+        description: Error adding timeslot
+    """
     data = request.get_json()
     day = data.get('day')
     start_time = data.get('start_time')
@@ -268,11 +422,32 @@ def add_timeslot(salon_id, employee_id):
         cursor.close()
         return jsonify({"message": "Time slot added successfully"}), 201
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while adding the time slot."}), 500
     
 
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/timeslots', methods=['GET'])
 def get_timeslots(salon_id, employee_id):
+    """
+    Get all timeslots for an employee
+    ---
+    tags:
+      - Employees - Time Slots
+    parameters:
+      - name: salon_id
+        in: path
+        type: integer
+        required: true
+      - name: employee_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Timeslots returned successfully
+      500:
+        description: Error fetching timeslots
+    """
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -295,10 +470,50 @@ def get_timeslots(salon_id, employee_id):
                     timeslot[key] = str(timeslot[key])
         return jsonify(timeslots), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while fetching time slots."}), 500
 
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/timeslots/<int:slot_id>', methods=['PUT'])
 def edit_timeslot(salon_id, employee_id, slot_id):
+    """
+    Edit an existing timeslot
+    ---
+    tags:
+      - Employees - Time Slots
+    consumes:
+      - application/json
+    parameters:
+      - name: salon_id
+        in: path
+        type: integer
+        required: true
+      - name: employee_id
+        in: path
+        type: integer
+        required: true
+      - name: slot_id
+        in: path
+        type: integer
+        required: true
+      - in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            day:
+              type: string
+            start_time:
+              type: string
+            end_time:
+              type: string
+    responses:
+      200:
+        description: Timeslot updated successfully
+      400:
+        description: Invalid timeslot or outside operating hours
+      500:
+        description: Internal server error
+    """
     data = request.get_json()
     day = data.get('day')
     start_time = data.get('start_time')
@@ -361,10 +576,35 @@ def edit_timeslot(salon_id, employee_id, slot_id):
         cursor.close()
         return jsonify({"message": "Time slot updated successfully"}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while updating the time slot."}), 500
     
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/timeslots/<int:slot_id>', methods=['DELETE'])
 def delete_timeslot(salon_id, employee_id, slot_id):
+    """
+    Delete a timeslot
+    ---
+    tags:
+      - Employees - Time Slots
+    parameters:
+      - name: salon_id
+        in: path
+        type: integer
+        required: true
+      - name: employee_id
+        in: path
+        type: integer
+        required: true
+      - name: slot_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Timeslot deleted successfully
+      500:
+        description: Error deleting timeslot
+    """
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -377,8 +617,9 @@ def delete_timeslot(salon_id, employee_id, slot_id):
         cursor.close()
         return jsonify({"message": "Time slot deleted successfully"}), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while deleting the time slot."}), 500
-    
+
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/schedule', methods=['POST'])
 def save_full_schedule(salon_id, employee_id):
     """
@@ -496,10 +737,27 @@ def save_full_schedule(salon_id, employee_id):
 
     except Exception as e:
         mysql.connection.rollback()
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": f"Error saving schedule: {str(e)}"}), 500
 
 @employees_bp.route('/salon/<int:salon_id>/employees/salaries', methods=['GET'])
 def get_salaries(salon_id):
+    """
+    Get current salary for each employee in a salon
+    ---
+    tags:
+      - Employees - Salaries
+    parameters:
+      - name: salon_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Salaries returned successfully
+      500:
+        description: Error fetching salaries
+    """
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -531,10 +789,45 @@ def get_salaries(salon_id):
 
         return jsonify(salaries)
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while displaying the salaries."}), 500
 
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/salaries', methods=['POST'])
 def add_salary(salon_id, employee_id):
+    """
+    Add a salary entry for an employee
+    ---
+    tags:
+      - Employees - Salaries
+    consumes:
+      - application/json
+    parameters:
+      - name: salon_id
+        in: path
+        required: true
+        type: integer
+      - name: employee_id
+        in: path
+        required: true
+        type: integer
+      - in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            salary_value:
+              type: number
+            effective_date:
+              type: string
+              description: YYYY-MM-DD
+    responses:
+      201:
+        description: Salary added successfully
+      400:
+        description: Missing required fields
+      500:
+        description: Error adding salary
+    """
     data = request.get_json()
     salary_value = data.get('salary_value')
     effective_date = data.get('effective_date')
@@ -556,11 +849,32 @@ def add_salary(salon_id, employee_id):
         cursor.close()
         return jsonify({"message": "Salary added successfully"}), 201
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while adding the salary."}), 500
 
 #displays the salary histories of a specific employee 
 @employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/salaries', methods=['GET'])
 def get_salary(salon_id, employee_id):
+    """
+    Get salary history for an employee
+    ---
+    tags:
+      - Employees - Salaries
+    parameters:
+      - name: salon_id
+        in: path
+        required: true
+        type: integer
+      - name: employee_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: Salary history returned successfully
+      500:
+        description: Error retrieving salary history
+    """
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
@@ -582,9 +896,9 @@ def get_salary(salon_id, employee_id):
 
         return jsonify(salaries), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while fetching the employee's salary history."}), 500
     
-    # Get employee schedule
 @employees_bp.route('/employees/<int:employee_id>/schedule', methods=['GET'])
 def get_employee_schedule(employee_id):
     from MySQLdb.cursors import DictCursor
@@ -602,6 +916,7 @@ def get_employee_schedule(employee_id):
         schedule = cursor.fetchall()
         return jsonify(schedule), 200
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -651,6 +966,7 @@ def save_employee_schedule(employee_id):
         
     except Exception as e:
         mysql.connection.rollback()
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -673,6 +989,7 @@ def delete_employee_schedule(employee_id, day):
         
     except Exception as e:
         mysql.connection.rollback()
+        log_error(str(e), session.get("user_id"))
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()

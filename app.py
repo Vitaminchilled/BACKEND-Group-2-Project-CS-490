@@ -6,6 +6,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from flasgger import Swagger
 from datetime import datetime, timedelta, timezone
 from utils.emails import send_email
+from start_time import SERVER_START_TIME
 
 from flask import Blueprint, jsonify, request, current_app
 from MySQLdb.cursors import DictCursor
@@ -18,7 +19,7 @@ app.secret_key = 'G76D-U89V-576V-7BT6'
 app.config.update(
     MYSQL_HOST='localhost',
     MYSQL_USER='root',
-    MYSQL_PASSWORD='5283',
+    MYSQL_PASSWORD='Luca15',
     MYSQL_DB='salon'
 )
 
@@ -34,7 +35,7 @@ mysql = MySQL(app)
 mail = Mail(app)
 app.config['MYSQL'] = mysql
 
-app.config['SERVER_START_TIME'] = datetime.now(timezone.utc)
+app.config[SERVER_START_TIME] = datetime.now(timezone.utc)
 
 swagger_template = {
     "swagger": "2.0",
@@ -46,7 +47,7 @@ swagger_template = {
     "basePath": "/"
 }
 
-Swagger(app, template=swagger_template)
+Swagger(app, template=swagger_template) 
 
 analytics_bp = Blueprint('analytics', __name__)
 
@@ -662,6 +663,7 @@ from cart import cart_bp
 from products import products_bp
 from user_dashboard import user_dashboard_bp
 from users import users_bp
+from analytics import analytics_bp
 from notifications import notifications_bp
 
 app.register_blueprint(login_bp)
@@ -685,8 +687,7 @@ app.register_blueprint(analytics_bp)
 app.register_blueprint(notifications_bp)
 
 scheduled_appointments = set()
-
-# send customer's email updates for appointments 24 hours before the appointment
+#send customer's email updates for appointments 24 hours before the appointment 
 def send_appointment_reminder():
     with app.app_context():
         mysql = app.config['MYSQL']
@@ -722,7 +723,7 @@ def send_appointment_reminder():
                 send_email(email, subject, body)
 
                 scheduled_appointments.add(appointment_id)
-
+        
 scheduler = BackgroundScheduler()
 scheduler.add_job(send_appointment_reminder, 'interval', hours=8)
 scheduler.start()
