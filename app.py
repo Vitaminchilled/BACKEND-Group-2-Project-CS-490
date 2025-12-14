@@ -34,7 +34,6 @@ mysql = MySQL(app)
 mail = Mail(app)
 app.config['MYSQL'] = mysql
 
-# ✅ MONITORING: Track server start time for uptime monitoring
 app.config['SERVER_START_TIME'] = datetime.now(timezone.utc)
 
 swagger_template = {
