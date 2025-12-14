@@ -4,7 +4,7 @@ on:
   push:
     branches: [ "main", "dev", "LIVETEST Vtwo" ]
   pull_request:
-    branches: [ "main", "dev" ]
+    branches: [ "main", "dev", "LIVETEST Vtwo" ]
 
 jobs:
   test-backend:
