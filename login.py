@@ -56,10 +56,19 @@ def login():
     
     #check if password is correct
     user_id, hashed_password = user
-    if not check_password_hash(hashed_password, password):
+    '''if not check_password_hash(hashed_password, password):
         cursor.close()
         log_error("Invalid login attempt for username: {}".format(username), None)
-        return jsonify({'error': 'Invalid username or password'}), 401
+        return jsonify({'error': 'Invalid username or password'}), 401'''
+    
+    if not stored_password.startswith("scrypt:"):
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+
+    new_hashed_password = generate_password_hash(
+        stored_password,
+        method="scrypt"
+    )
     
     # Get first_name
     first_name = None
