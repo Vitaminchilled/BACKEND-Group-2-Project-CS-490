@@ -70,11 +70,20 @@ def get_loyalty(salon_id):
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select loyalty_programs.name, loyalty_programs.points_required, group_concat(tags.name order by tags.name separator ', ') as tags,
+            select 
+              loyalty_programs.loyalty_program_id,
+              loyalty_programs.name, 
+              loyalty_programs.points_required, 
+              group_concat(tags.name order by tags.name separator ', ') as tags,
             case
                 when loyalty_programs.is_percentage = true then concat(cast(loyalty_programs.discount_value as unsigned), '%%')
                 else concat('$', loyalty_programs.discount_value)
-            end as discount_display
+            end as discount_display,
+            case
+                when loyalty_programs.end_date is null or loyalty_programs.end_date > curdate() then true
+                else false
+            end as is_active,
+            loyalty_programs.is_percentage
             from loyalty_programs
             join entity_tags on entity_tags.entity_type = 'loyalty' and entity_tags.entity_id = loyalty_programs.loyalty_program_id
             join tags on tags.tag_id = entity_tags.tag_id
@@ -83,7 +92,18 @@ def get_loyalty(salon_id):
         """
         cursor.execute(query, (salon_id,))
         loyalty = cursor.fetchall()
-        return jsonify(loyalty), 200
+        
+        return jsonify({
+            'loyalty':[{
+                "loyalty_program_id": row[0],
+                "name": row[1],
+                "points_required": row[2],
+                "tags": row[3],
+                "discount_display": row[4],
+                "is_active": bool(row[5]),
+                "is_percentage": bool(row[6])
+            } for row in loyalty]
+        }), 200
     except Exception as e:
         log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch loyalty programs', 'details': str(e)}), 500
