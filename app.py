@@ -1,5 +1,3 @@
-import os
-import boto3
 from flask import Flask
 from flask_mysqldb import MySQL
 from flask_cors import CORS
@@ -8,6 +6,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from flasgger import Swagger
 from datetime import datetime, timedelta, timezone
 from utils.emails import send_email
+from start_time import SERVER_START_TIME
 
 app = Flask(__name__)
 CORS(app)
@@ -15,26 +14,11 @@ CORS(app)
 app.secret_key = 'G76D-U89V-576V-7BT6'
 
 app.config.update(
-    MYSQL_HOST=os.getenv("MYSQL_HOST"),
-    MYSQL_USER=os.getenv("MYSQL_USER"),
-    MYSQL_PASSWORD=os.getenv("MYSQL_PASSWORD"),
-    MYSQL_DB=os.getenv("MYSQL_DB")
+    MYSQL_HOST='localhost',
+    MYSQL_USER='root',
+    MYSQL_PASSWORD='5283',
+    MYSQL_DB='salon'
 )
-'''
-s3 = boto3.client(
-    "s3",
-    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-    region_name=os.getenv("AWS_REGION")
-)
-
-S3_BUCKET = os.getenv("AWS_S3_BUCKET")
-'''
-
-app.config["AWS_ACCESS_KEY_ID"] = os.getenv("AWS_ACCESS_KEY_ID")
-app.config["AWS_SECRET_ACCESS_KEY"] = os.getenv("AWS_SECRET_ACCESS_KEY")
-app.config["AWS_REGION"] = os.getenv("AWS_REGION")
-app.config["AWS_S3_BUCKET"] = os.getenv("AWS_S3_BUCKET")
 
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
@@ -47,7 +31,6 @@ app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
 mysql = MySQL(app)
 mail = Mail(app)
 app.config['MYSQL'] = mysql
-SERVER_START_TIME = datetime.now(timezone.utc)
 
 swagger_template = {
     "swagger": "2.0",
