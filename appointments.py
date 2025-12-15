@@ -448,7 +448,7 @@ def total_appointments(salon_id):
         cursor.close()
 
 # Rescheduling function! this function is going to need the new appointment date.
-@appointments_bp.route('/appointments/update', methods=['PUT'])
+'''@appointments_bp.route('/appointments/update', methods=['PUT'])
 def update_appointment():
     """
     Update an appointment date/time
@@ -588,6 +588,196 @@ def update_appointment():
             'start_time': start_time,
             'end_time': end_time_str,
             'notes': notes
+        }), 200
+
+    except Exception as e:
+        mysql.connection.rollback()
+        return jsonify({'error': str(e)}), 500
+
+    finally:
+        cursor.close()'''
+
+@appointments_bp.route('/appointments/update', methods=['PUT'])
+def update_appointment():
+    """
+    Update an appointment date/time and optionally replace before/after images
+    ---
+    tags:
+      - Appointments
+    consumes:
+      - multipart/form-data
+    parameters:
+      - in: formData
+        name: appointment_id
+        type: integer
+        required: true
+      - in: formData
+        name: new_date
+        type: string
+      - in: formData
+        name: new_start_time
+        type: string
+      - in: formData
+        name: new_note
+        type: string
+      - in: formData
+        name: image_before
+        type: file
+        required: false
+      - in: formData
+        name: image_after
+        type: file
+        required: false
+    responses:
+      200:
+        description: Appointment updated
+      404:
+        description: Appointment not found
+    """
+
+    # accept text fields from form
+    appointment_id = request.form.get('appointment_id')
+    new_date = request.form.get('new_date')
+    new_start_time = request.form.get('new_start_time')
+    new_note = request.form.get('new_note')
+
+    # accept files
+    image_before_file = request.files.get('image_before')
+    image_after_file = request.files.get('image_after')
+
+    if not appointment_id:
+        return jsonify({'error': 'Missing appointment ID'}), 400
+
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor(DictCursor)
+
+    try:
+        # fetch existing appointment
+        cursor.execute("SELECT * FROM appointments WHERE appointment_id = %s", (appointment_id,))
+        appointment = cursor.fetchone()
+        if not appointment:
+            return jsonify({'error': 'Appointment not found'}), 404
+
+        # use existing values as fallback
+        appointment_date = new_date or appointment['appointment_date']
+        start_time = new_start_time or appointment['start_time']
+        notes = new_note if new_note is not None else appointment['notes']
+
+        # get duration
+        cursor.execute("SELECT duration_minutes FROM services WHERE service_id = %s", (appointment['service_id'],))
+        service = cursor.fetchone()
+        if not service:
+            return jsonify({'error': 'Invalid service associated with this appointment'}), 400
+        duration = timedelta(minutes=service['duration_minutes'])
+
+        # calculate times
+        try:
+            start_dt = datetime.strptime(f"{appointment_date} {start_time}", "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return jsonify({'error': 'Invalid date or time format'}), 400
+
+        end_dt = start_dt + duration
+        end_time_str = end_dt.strftime("%H:%M:%S")
+        day_name = start_dt.strftime("%A")
+
+        # employee schedule validation
+        cursor.execute("""
+            SELECT start_time, end_time
+            FROM time_slots
+            WHERE employee_id = %s AND salon_id = %s
+              AND day = %s AND is_available = TRUE
+        """, (appointment['employee_id'], appointment['salon_id'], day_name))
+        schedule = cursor.fetchone()
+        if not schedule:
+            return jsonify({'error': f'Employee is not scheduled to work on {day_name}'}), 400
+
+        schedule_start_time = schedule['start_time']
+        schedule_end_time = schedule['end_time']
+
+        if isinstance(schedule_start_time, timedelta):
+            schedule_start_time = timedelta_to_time(schedule_start_time)
+        if isinstance(schedule_end_time, timedelta):
+            schedule_end_time = timedelta_to_time(schedule_end_time)
+
+        schedule_start_dt = datetime.combine(start_dt.date(), schedule_start_time)
+        schedule_end_dt = datetime.combine(start_dt.date(), schedule_end_time)
+
+        # working hours check
+        if not (schedule_start_dt <= start_dt < schedule_end_dt):
+            return jsonify({'error': 'Requested time is outside working hours'}), 400
+        if not (start_dt < end_dt <= schedule_end_dt):
+            return jsonify({'error': 'Service duration extends beyond working hours'}), 400
+
+        # overlap check
+        cursor.execute("""
+            SELECT 1 FROM appointments
+            WHERE employee_id = %s
+              AND salon_id = %s
+              AND appointment_date = %s
+              AND status IN ('booked', 'confirmed')
+              AND appointment_id != %s
+              AND (
+                    (start_time < %s AND end_time > %s) OR
+                    (start_time >= %s AND start_time < %s)
+                  )
+            LIMIT 1
+        """, (
+            appointment['employee_id'],
+            appointment['salon_id'],
+            appointment_date,
+            appointment_id,
+            end_time_str, start_time,
+            start_time, end_time_str
+        ))
+        overlap = cursor.fetchone()
+        if overlap:
+            return jsonify({'error': 'Time slot overlaps with another appointment'}), 400
+
+        new_image_before_url = appointment['image_url']
+        new_image_after_url = appointment['image_after_url']
+
+        # replace BEFORE photo
+        if image_before_file:
+            if appointment['image_url']:
+                S3Uploader.delete_image_from_s3(appointment['image_url'])
+            new_image_before_url = S3Uploader.upload_image_to_s3(image_before_file)
+
+        # replace AFTER photo
+        if image_after_file:
+            if appointment['image_after_url']:
+                S3Uploader.delete_image_from_s3(appointment['image_after_url'])
+            new_image_after_url = S3Uploader.upload_image_to_s3(image_after_file)
+
+        cursor.execute("""
+            UPDATE appointments
+            SET appointment_date = %s,
+                start_time = %s,
+                end_time = %s,
+                notes = %s,
+                image_url = %s,
+                image_after_url = %s,
+                last_modified = %s
+            WHERE appointment_id = %s
+        """, (
+            appointment_date,
+            start_time,
+            end_time_str,
+            notes,
+            new_image_before_url,
+            new_image_after_url,
+            datetime.now(),
+            appointment_id
+        ))
+
+        mysql.connection.commit()
+        return jsonify({
+            'message': 'Appointment updated successfully',
+            'appointment_date': appointment_date,
+            'start_time': start_time,
+            'end_time': end_time_str,
+            'notes': notes,
+            'image_url': new_image_before_url,
+            'image_after_url': new_image_after_url
         }), 200
 
     except Exception as e:
