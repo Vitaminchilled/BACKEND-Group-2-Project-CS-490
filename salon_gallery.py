@@ -272,6 +272,64 @@ def get_after_image(salon_id, appointment_id):
       log_error(str(e), session.get("user_id"))
       return jsonify({"error": "Failed to fetch after service images"}), 500
 
+# Reference images
+@salon_gallery_bp.route('/salon/<int:salon_id>/appointments/<int:appointment_id>/reference-images', methods=['GET'])
+def get_reference_images(salon_id, appointment_id):
+    """
+    Get reference images for a specific appointment (non-before/after images)
+    ---
+    tags:
+      - Salon Gallery
+    parameters:
+      - name: salon_id
+        in: path
+        required: true
+        type: integer
+      - name: appointment_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: List of reference images
+      404:
+        description: No reference photos found
+      500:
+        description: Failed to fetch reference images
+    """
+    cursor = None
+    try:
+        mysql = current_app.config["MYSQL"]
+        cursor = mysql.connection.cursor()
+        query = """
+          select gallery_id, salon_id, appointment_id, image_url, description, created_at
+          from salon_gallery
+          where salon_id = %s and appointment_id = %s and description = 'reference'
+          order by created_at desc
+        """
+        cursor.execute(query, (salon_id, appointment_id))
+        images = cursor.fetchall()
+        if not images:
+            return jsonify({"message": "No reference photos found"}), 404
+
+        return jsonify([{
+            "gallery_id": image[0],
+            "salon_id": image[1],
+            "appointment_id": image[2],
+            "image_url": image[3],
+            "description": image[4],
+            "created_at": image[5].strftime('%Y-%m-%d %H:%M:%S') if image[5] else None
+        } for image in images]), 200
+    except Exception as e:
+        log_error(str(e), session.get("user_id"))
+        return jsonify({"error": "Failed to fetch reference images", "details": str(e)}), 500
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+
 @salon_gallery_bp.route('/salon/<int:salon_id>/gallery/upload', methods=['POST'])
 def upload_image(salon_id):
     """
@@ -555,177 +613,4 @@ responses:
     except Exception as e:
         log_error(str(e), session.get("user_id"))
         return jsonify({'error': f'Failed to delete image: {str(e)}'}), 500
-
-# Before service images
-@salon_gallery_bp.route('/salon/<int:salon_id>/appointments/<int:appointment_id>/before-image', methods=['GET'])
-def get_before_image(salon_id, appointment_id):
-    """
-    Get before-service photos for a specific appointment
-    ---
-    tags:
-      - Salon Gallery
-    parameters:
-      - name: salon_id
-        in: path
-        required: true
-        type: integer
-      - name: appointment_id
-        in: path
-        required: true
-        type: integer
-    responses:
-      200:
-        description: List of before-service images
-      404:
-        description: No before-service photos found
-      500:
-        description: Failed to fetch before-service images
-    """
-    cursor = None
-    try:
-        mysql = current_app.config["MYSQL"]
-        cursor = mysql.connection.cursor()
-        query = """
-          select gallery_id, salon_id, appointment_id, image_url, description, created_at
-          from salon_gallery
-          where salon_id = %s and appointment_id = %s and description = 'before'
-          order by created_at desc
-        """
-        cursor.execute(query, (salon_id, appointment_id))
-        images = cursor.fetchall()
-        if not images:
-            return jsonify({"message": "No before-service photos found"}), 404
-
-        return jsonify([{
-            "gallery_id": image[0],
-            "salon_id": image[1],
-            "appointment_id": image[2],
-            "image_url": image[3],
-            "description": image[4],
-            "created_at": image[5].strftime('%Y-%m-%d %H:%M:%S') if image[5] else None
-        } for image in images]), 200
-    except Exception as e:
-        log_error(str(e), session.get("user_id"))
-        return jsonify({"error": "Failed to fetch before-service images", "details": str(e)}), 500
-    finally:
-        if cursor:
-            try:
-                cursor.close()
-            except Exception:
-                pass
-
-# After service images
-@salon_gallery_bp.route('/salon/<int:salon_id>/appointments/<int:appointment_id>/after-image', methods=['GET'])
-def get_after_image(salon_id, appointment_id):
-    """
-    Get after-service photos for a specific appointment
-    ---
-    tags:
-      - Salon Gallery
-    parameters:
-      - name: salon_id
-        in: path
-        required: true
-        type: integer
-      - name: appointment_id
-        in: path
-        required: true
-        type: integer
-    responses:
-      200:
-        description: List of after-service images
-      404:
-        description: No after service photos found
-      500:
-        description: Failed to fetch after service images
-    """
-    cursor = None
-    try:
-        mysql = current_app.config["MYSQL"]
-        cursor = mysql.connection.cursor()
-        query = """
-          select gallery_id, salon_id, appointment_id, image_url, description, created_at
-          from salon_gallery
-          where salon_id = %s and appointment_id = %s and description = 'after'
-          order by created_at desc
-        """
-        cursor.execute(query, (salon_id, appointment_id))
-        images = cursor.fetchall()
-        if not images:
-            return jsonify({"message": "No after service photos found"}), 404
-
-        return jsonify([{
-            "gallery_id": image[0],
-            "salon_id": image[1],
-            "appointment_id": image[2],
-            "image_url": image[3],
-            "description": image[4],
-            "created_at": image[5].strftime('%Y-%m-%d %H:%M:%S') if image[5] else None
-        } for image in images]), 200
-    except Exception as e:
-        log_error(str(e), session.get("user_id"))
-        return jsonify({"error": "Failed to fetch after service images", "details": str(e)}), 500
-    finally:
-        if cursor:
-            try:
-                cursor.close()
-            except Exception:
-                pass
-
-# Reference images
-@salon_gallery_bp.route('/salon/<int:salon_id>/appointments/<int:appointment_id>/reference-images', methods=['GET'])
-def get_reference_images(salon_id, appointment_id):
-    """
-    Get reference images for a specific appointment (non-before/after images)
-    ---
-    tags:
-      - Salon Gallery
-    parameters:
-      - name: salon_id
-        in: path
-        required: true
-        type: integer
-      - name: appointment_id
-        in: path
-        required: true
-        type: integer
-    responses:
-      200:
-        description: List of reference images
-      404:
-        description: No reference photos found
-      500:
-        description: Failed to fetch reference images
-    """
-    cursor = None
-    try:
-        mysql = current_app.config["MYSQL"]
-        cursor = mysql.connection.cursor()
-        query = """
-          select gallery_id, salon_id, appointment_id, image_url, description, created_at
-          from salon_gallery
-          where salon_id = %s and appointment_id = %s and description = 'reference'
-          order by created_at desc
-        """
-        cursor.execute(query, (salon_id, appointment_id))
-        images = cursor.fetchall()
-        if not images:
-            return jsonify({"message": "No reference photos found"}), 404
-
-        return jsonify([{
-            "gallery_id": image[0],
-            "salon_id": image[1],
-            "appointment_id": image[2],
-            "image_url": image[3],
-            "description": image[4],
-            "created_at": image[5].strftime('%Y-%m-%d %H:%M:%S') if image[5] else None
-        } for image in images]), 200
-    except Exception as e:
-        log_error(str(e), session.get("user_id"))
-        return jsonify({"error": "Failed to fetch reference images", "details": str(e)}), 500
-    finally:
-        if cursor:
-            try:
-                cursor.close()
-            except Exception:
-                pass
+        
