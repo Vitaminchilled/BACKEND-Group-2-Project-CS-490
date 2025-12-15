@@ -142,24 +142,12 @@ def book_appointment():
         if overlap:
             return jsonify({'error': 'Time slot overlaps with another appointment'}), 400
 
-        # inserting into time slot, idk if this is neccesary, 
-        # might end up removing time_slot table from database down the line...
-        # cursor.execute("""
-        #     INSERT INTO time_slots (
-        #         salon_id, employee_id, day, start_time, end_time, is_available
-        #     ) VALUES (%s, %s, %s, %s, %s, FALSE)
-        # """, (salon_id, employee_id, appointment_date, start_time, end_time_str, 1))
-        # time_slot_id = cursor.lastrowid
-
-        # time_slot_id = time_slot_id['slot_id']
-
         cursor.execute("""
             SELECT slot_id
             FROM time_slots
             WHERE salon_id = %s AND employee_id = %s AND day = %s AND start_time <= %s AND end_time >= %s AND is_available = TRUE
             LIMIT 1
-        """, (salon_id, employee_id, day_name, start_time, end_time_str))
-
+        """, (employee_id, salon_id, day_name, start_time, end_time_str))
 
         time_slot_id = cursor.fetchone()
 
@@ -190,6 +178,7 @@ def book_appointment():
         }), 201
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
 
@@ -346,7 +335,7 @@ def reviewless_appointments(salon_id):
       400:
         description: Missing customer ID
     """
-    customer_id = session.get('user_id')
+    customer_id = request.args.get('customer_id')
 
     if not customer_id:
         return jsonify({'error': 'Missing customer_id parameter'}), 400
@@ -919,6 +908,7 @@ def employee_weekly_availability(employee_id):
         }), 200
 
     except Exception as e:
+        log_error(str(e), session.get("user_id"))
         mysql.connection.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
@@ -1284,7 +1274,6 @@ def delete_employee_break(employee_id, slot_id):
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
-
 
 
 
