@@ -3,6 +3,7 @@ from MySQLdb.cursors import DictCursor
 from datetime import datetime
 from flasgger import swag_from
 from utils.logerror import log_error
+from s3_uploads import S3Uploader
 
 products_bp = Blueprint('products_bp', __name__)
 
