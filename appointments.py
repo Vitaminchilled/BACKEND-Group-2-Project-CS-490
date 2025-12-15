@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, time as dt_time, date
 from MySQLdb.cursors import DictCursor
 from utils.logerror import log_error
 from flask import session
+from s3_uploads import S3Uploader
 
 appointments_bp = Blueprint('appointments_bp', __name__)
 
