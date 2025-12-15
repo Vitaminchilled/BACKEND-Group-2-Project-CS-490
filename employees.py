@@ -254,6 +254,7 @@ def edit_employee(salon_id, employee_id):
         cursor.close()
         return jsonify({"message": "Employee updated successfully"}), 200
     except Exception as e:
+        current_app.logger.error(f"Error updating employee {employee_id}: {e}")
         log_error(str(e), session.get("user_id"))
         cursor.close()
         return jsonify({"error": "An error occurred while updating the employee."}), 500
@@ -317,6 +318,7 @@ def delete_employee(salon_id, employee_id):
         cursor.close()
         return jsonify({"message": "Employee deleted successfully"}), 200
     except Exception as e:
+        current_app.logger.error(f"Error updating employee {employee_id}: {e}")
         log_error(str(e), session.get("user_id"))
         cursor.close()
         return jsonify({"error": "An error occurred while deleting the employee."}), 500
@@ -618,6 +620,125 @@ def delete_timeslot(salon_id, employee_id, slot_id):
         log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while deleting the time slot."}), 500
 
+@employees_bp.route('/salon/<int:salon_id>/employees/<int:employee_id>/schedule', methods=['POST'])
+def save_full_schedule(salon_id, employee_id):
+    """
+    Save or update full weekly schedule for an employee
+    ---
+    tags:
+      - Employees - Time Slots
+    consumes:
+      - application/json
+    parameters:
+      - name: salon_id
+        in: path
+        type: integer
+        required: true
+      - name: employee_id
+        in: path
+        type: integer
+        required: true
+      - in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            schedule:
+              type: array
+              items:
+                type: object
+                properties:
+                  day:
+                    type: string
+                  start_time:
+                    type: string
+                  end_time:
+                    type: string
+                  is_available:
+                    type: boolean
+    responses:
+      200:
+        description: Schedule saved successfully
+      400:
+        description: Invalid data
+      500:
+        description: Error saving schedule
+    """
+    data = request.get_json()
+    schedule = data.get('schedule', [])
+
+    if not schedule:
+        return jsonify({"error": "No schedule data provided"}), 400
+
+    try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+
+        # Delete all existing timeslots for this employee
+        cursor.execute("""
+            DELETE FROM time_slots 
+            WHERE employee_id = %s AND salon_id = %s
+        """, (employee_id, salon_id))
+
+        # Insert new schedule
+        for slot in schedule:
+            day = slot.get('day')
+            start_time = slot.get('start_time')
+            end_time = slot.get('end_time')
+            is_available = slot.get('is_available', True)
+
+            if not all([day, start_time, end_time]):
+                continue  # Skip invalid entries
+
+            # Validate time format
+            try:
+                start_time_obj = datetime.strptime(start_time, "%H:%M:%S").time()
+                end_time_obj = datetime.strptime(end_time, "%H:%M:%S").time()
+            except ValueError:
+                # Try without seconds
+                try:
+                    start_time_obj = datetime.strptime(start_time, "%H:%M").time()
+                    end_time_obj = datetime.strptime(end_time, "%H:%M").time()
+                except ValueError:
+                    continue  # Skip invalid time format
+
+            # Check salon operating hours
+            cursor.execute("""
+                SELECT open_time, close_time, is_closed
+                FROM operating_hours
+                WHERE salon_id = %s AND day = %s
+            """, (salon_id, day))
+            
+            hours = cursor.fetchone()
+            if not hours or hours[2]:  # is_closed = True
+                continue  # Skip if salon is closed on this day
+
+            open_time = (datetime.min + hours[0]).time()
+            close_time = (datetime.min + hours[1]).time()
+
+            # Validate within operating hours
+            if not (open_time <= start_time_obj <= close_time and 
+                    open_time <= end_time_obj <= close_time):
+                continue  # Skip invalid hours
+
+            # Insert timeslot
+            cursor.execute("""
+                INSERT INTO time_slots (salon_id, employee_id, day, start_time, end_time, is_available)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (salon_id, employee_id, day, start_time_obj, end_time_obj, is_available))
+
+        mysql.connection.commit()
+        cursor.close()
+        
+        return jsonify({
+            "message": "Schedule saved successfully",
+            "slots_saved": len(schedule)
+        }), 200
+
+    except Exception as e:
+        mysql.connection.rollback()
+        return jsonify({"error": f"Error saving schedule: {str(e)}"}), 500
+
 @employees_bp.route('/salon/<int:salon_id>/employees/salaries', methods=['GET'])
 def get_salaries(salon_id):
     """
@@ -776,3 +897,98 @@ def get_salary(salon_id, employee_id):
     except Exception as e:
         log_error(str(e), session.get("user_id"))
         return jsonify({"error": "An error occurred while fetching the employee's salary history."}), 500
+    
+@employees_bp.route('/employees/<int:employee_id>/schedule', methods=['GET'])
+def get_employee_schedule(employee_id):
+    from MySQLdb.cursors import DictCursor
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor(DictCursor)
+    
+    try:
+        cursor.execute("""
+            SELECT day, start_time, end_time, is_available as is_active
+            FROM time_slots
+            WHERE employee_id = %s AND is_available = TRUE
+            ORDER BY FIELD(day, 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday')
+        """, (employee_id,))
+        
+        schedule = cursor.fetchall()
+        return jsonify(schedule), 200
+    except Exception as e:
+        log_error(str(e), session.get("user_id"))
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+
+
+# Save/Update employee schedule
+@employees_bp.route('/employees/<int:employee_id>/schedule', methods=['POST'])
+def save_employee_schedule(employee_id):
+    from MySQLdb.cursors import DictCursor
+    data = request.get_json()
+    salon_id = data.get('salon_id')
+    day = data.get('day')
+    start_time = data.get('start_time')
+    end_time = data.get('end_time')
+    
+    if not all([salon_id, day, start_time, end_time]):
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor(DictCursor)
+    
+    try:
+        # Check if schedule exists
+        cursor.execute("""
+            SELECT slot_id FROM time_slots
+            WHERE employee_id = %s AND salon_id = %s AND day = %s AND is_available = TRUE
+        """, (employee_id, salon_id, day))
+        
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Update existing schedule
+            cursor.execute("""
+                UPDATE time_slots
+                SET start_time = %s, end_time = %s, last_modified = NOW()
+                WHERE slot_id = %s
+            """, (start_time, end_time, existing['slot_id']))
+        else:
+            # Insert new schedule
+            cursor.execute("""
+                INSERT INTO time_slots (salon_id, employee_id, day, start_time, end_time, is_available)
+                VALUES (%s, %s, %s, %s, %s, TRUE)
+            """, (salon_id, employee_id, day, start_time, end_time))
+        
+        mysql.connection.commit()
+        return jsonify({'message': 'Schedule saved successfully'}), 200
+        
+    except Exception as e:
+        mysql.connection.rollback()
+        log_error(str(e), session.get("user_id"))
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+
+
+# Delete employee schedule for a day
+@employees_bp.route('/employees/<int:employee_id>/schedule/<string:day>', methods=['DELETE'])
+def delete_employee_schedule(employee_id, day):
+    mysql = current_app.config['MYSQL']
+    cursor = mysql.connection.cursor()
+    
+    try:
+        cursor.execute("""
+            DELETE FROM time_slots
+            WHERE employee_id = %s AND day = %s AND is_available = TRUE
+        """, (employee_id, day))
+        
+        mysql.connection.commit()
+        return jsonify({'message': 'Schedule deleted successfully'}), 200
+        
+    except Exception as e:
+        mysql.connection.rollback()
+        log_error(str(e), session.get("user_id"))
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()

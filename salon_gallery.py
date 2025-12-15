@@ -204,6 +204,73 @@ responses:
         cursor.close()
         return jsonify({'error': 'No product photo to be displayed'}), 500
 
+#get before image
+@salon_gallery_bp.route('/salon/<int:salon_id>/appointments/<int:appointment_id>/before-image', methods=['GET'])
+def get_before_image(salon_id, appointment_id):
+  try:
+    mysql = current_app.config["MYSQL"]
+    cursor = mysql.connection.cursor()
+    query = """
+      select gallery_id, salon_id, appointment_id, image_url, description, created_at
+      from salon_gallery
+      where salon_id = %s and appointment_id = %s and description = 'before'
+      order by created_at desc
+    """
+    cursor.execute(query, (salon_id, appointment_id))
+    images = cursor.fetchall()
+    cursor.close()
+
+    if not images:
+            return jsonify({"message": "No before-service photos found"}), 404
+    
+    return jsonify([
+            {
+                "gallery_id": image[0],
+                "salon_id": image[1],
+                "appointment_id": image[2],
+                "image_url": image[3],
+                "description": image[4],
+                "created_at": image[5].strftime('%Y-%m-%d %H:%M:%S')
+            }
+            for image in images
+        ]), 200
+  except Exception as e:
+      log_error(str(e), session.get("user_id"))
+      return jsonify({"error": "Failed to fetch before-service images"}), 500
+
+#get after image
+@salon_gallery_bp.route('/salon/<int:salon_id>/appointments/<int:appointment_id>/after-image', methods=['GET'])
+def get_after_image(salon_id, appointment_id):
+  try:
+    mysql = current_app.config["MYSQL"]
+    cursor = mysql.connection.cursor()
+    query = """
+      select gallery_id, salon_id, appointment_id, image_url, description, created_at
+      from salon_gallery
+      where salon_id = %s and appointment_id = %s and description = 'after'
+      order by created_at desc
+    """
+    cursor.execute(query, (salon_id, appointment_id))
+    images = cursor.fetchall()
+    cursor.close()
+
+    if not images:
+            return jsonify({"message": "No after service photos found"}), 404
+    
+    return jsonify([
+            {
+                "gallery_id": image[0],
+                "salon_id": image[1],
+                "appointment_id": image[2],
+                "image_url": image[3],
+                "description": image[4],
+                "created_at": image[5].strftime('%Y-%m-%d %H:%M:%S')
+            }
+            for image in images
+        ]), 200
+  except Exception as e:
+      log_error(str(e), session.get("user_id"))
+      return jsonify({"error": "Failed to fetch after service images"}), 500
 
 @salon_gallery_bp.route('/salon/<int:salon_id>/gallery/upload', methods=['POST'])
 def upload_image(salon_id):
@@ -251,6 +318,12 @@ responses:
 
     employee_id = int(employee_id) if employee_id else None
     product_id = int(product_id) if product_id else None
+
+    appointment_id = request.form.get('appointment_id')
+    stage = request.form.get('stage')  # 'before', 'after', or none
+
+    if stage in ["before", "after"]:
+        description = stage 
 
     if not image:
         return jsonify({'error': 'Image file is required'}), 400

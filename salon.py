@@ -232,7 +232,8 @@ def get_salon_info(salon_id):
                     left join master_tags m 
                     on m.master_tag_id = e.master_tag_id
                     where e.entity_id = s.salon_id and e.entity_type = 'salon'
-                ) as master_tags
+                ) as master_tags,
+                s.is_verified
             from salons s
             left join addresses ad
             on ad.salon_id = s.salon_id
@@ -272,7 +273,8 @@ def get_salon_info(salon_id):
                 "state": salon[9],
                 "postal_code": salon[10],
                 "country": salon[11],
-                "average_rating": salon[12]
+                "average_rating": salon[12],
+                "is_verified": bool(salon[14]) if salon[14] is not None else False
             },
             'tags' : tag_list,
             'master_tags' : master_tag_list

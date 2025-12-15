@@ -70,11 +70,20 @@ def get_loyalty(salon_id):
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
         query = """
-            select loyalty_programs.name, loyalty_programs.points_required, group_concat(tags.name order by tags.name separator ', ') as tags,
+            select 
+              loyalty_programs.loyalty_program_id,
+              loyalty_programs.name, 
+              loyalty_programs.points_required, 
+              group_concat(tags.name order by tags.name separator ', ') as tags,
             case
                 when loyalty_programs.is_percentage = true then concat(cast(loyalty_programs.discount_value as unsigned), '%%')
                 else concat('$', loyalty_programs.discount_value)
-            end as discount_display
+            end as discount_display,
+            case
+                when loyalty_programs.end_date is null or loyalty_programs.end_date > curdate() then true
+                else false
+            end as is_active,
+            loyalty_programs.is_percentage
             from loyalty_programs
             join entity_tags on entity_tags.entity_type = 'loyalty' and entity_tags.entity_id = loyalty_programs.loyalty_program_id
             join tags on tags.tag_id = entity_tags.tag_id
@@ -83,7 +92,18 @@ def get_loyalty(salon_id):
         """
         cursor.execute(query, (salon_id,))
         loyalty = cursor.fetchall()
-        return jsonify(loyalty), 200
+        
+        return jsonify({
+            'loyalty':[{
+                "loyalty_program_id": row[0],
+                "name": row[1],
+                "points_required": row[2],
+                "tags": row[3],
+                "discount_display": row[4],
+                "is_active": bool(row[5]),
+                "is_percentage": bool(row[6])
+            } for row in loyalty]
+        }), 200
     except Exception as e:
         log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch loyalty programs', 'details': str(e)}), 500
@@ -143,11 +163,31 @@ def add_loyalty(salon_id):
     start_date = data.get('start_date')
     end_date = data.get('end_date')
 
-    if not all([name, tag_names, points_required, discount_value, start_date, end_date]) or is_percentage is None:
-        return jsonify({"error": "Missing required fields"}), 400
+    required_fields = {
+      "name": name,
+      "tag_names": tag_names,
+      "points_required": points_required,
+      "discount_value": discount_value,
+      "start_date": start_date,
+      "end_date": end_date,
+      "is_percentage": is_percentage
+    }
+
+    missing_fields = [
+      field for field, value in required_fields.items() 
+      if value is None or (isinstance(value, str) and value.strip() == "")
+    ]
+
+    if missing_fields:
+      current_app.logger.warning(f"Add loyalty failed - missing fields: {missing_fields}")
+      return jsonify({"error": "Missing required fields", "missing_fields": missing_fields}), 400
+
+    # remove the old all() check entirely
+    if not isinstance(tag_names, list):
+      return jsonify({"error": "tag_names must be a list"}), 400
     
     if not isinstance(tag_names, list):
-        return jsonify({"error": "tag_names must be a list"}), 400
+      return jsonify({"error": "tag_names must be a list"}), 400
    
     try:
         mysql = current_app.config['MYSQL']
@@ -170,6 +210,7 @@ def add_loyalty(salon_id):
         cursor.close()
         return jsonify({"message": "Loyalty program added successfully"}), 201
     except Exception as e:
+        current_app.logger.error(f"Failed to add loyalty program: {e}", exc_info=True)
         log_error(str(e), session.get("user_id"))
         return jsonify({"error": "Failed to add loyalty program"}), 500 
 
@@ -503,3 +544,55 @@ def get_vouchers(customer_id):
     except Exception as e:
         log_error(str(e), session.get("user_id"))
         return jsonify({"error": "No vouchers availables"}), 500
+
+@loyalty_bp.route('/loyalty/<int:customer_id>/vouchers/<int:salon_id>', methods=['GET'])
+def get_vouchers_customer_salon(customer_id, salon_id):
+    """
+    Get all unredeemed loyalty vouchers for a customer at a specific salon
+    ---
+    tags:
+      - Loyalty
+    parameters:
+      - name: customer_id
+        in: path
+        type: integer
+        required: true
+      - name: salon_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: List of vouchers returned
+      404:
+        description: No vouchers found
+      500:
+        description: Failed to retrieve vouchers
+    """
+    try:
+        mysql = current_app.config['MYSQL']
+        cursor = mysql.connection.cursor()
+        query = """
+            SELECT salons.name AS salon_name, loyalty_programs.name AS program_name,
+            CASE
+                WHEN loyalty_programs.is_percentage = TRUE THEN CONCAT(CAST(loyalty_programs.discount_value AS UNSIGNED), '%%')
+                ELSE CONCAT('$', loyalty_programs.discount_value)
+            END AS discount_display
+            FROM customer_vouchers
+            JOIN salons ON customer_vouchers.salon_id = salons.salon_id
+            JOIN loyalty_programs ON customer_vouchers.loyalty_program_id = loyalty_programs.loyalty_program_id
+            WHERE customer_vouchers.redeemed = 0
+              AND customer_vouchers.customer_id = %s
+              AND customer_vouchers.salon_id = %s;
+        """
+        cursor.execute(query, (customer_id, salon_id))
+        vouchers = cursor.fetchall()
+        cursor.close()
+
+        if not vouchers:
+            return jsonify({"message": "No vouchers available"}), 404
+
+        return jsonify(vouchers), 200
+    except Exception as e:
+        log_error(str(e), session.get("user_id"))
+        return jsonify({"error": "Failed to retrieve vouchers"}), 500
