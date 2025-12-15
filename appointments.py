@@ -266,7 +266,9 @@ def view_appointments():
                     sv.duration_minutes AS service_duration,
                     e.employee_id,
                     CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
-                    e.description AS employee_description
+                    e.description AS employee_description,
+                    a.image_url,
+                    a.image_after_url
                 FROM appointments a
                 JOIN salons s ON a.salon_id = s.salon_id
                 JOIN services sv ON a.service_id = sv.service_id
