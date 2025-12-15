@@ -2,7 +2,7 @@ import os
 from flask import Blueprint, request, jsonify, current_app, session
 from datetime import datetime
 from utils.logerror import log_error
-
+from s3_uploads import S3Uploader
 salon_gallery_bp = Blueprint('salon_gallery', __name__)
 
 #get salon pictures
@@ -290,36 +290,34 @@ parameters:
     in: formData
     required: true
     type: file
-    description: Image file to upload
   - name: description
     in: formData
     type: string
-    description: Image description
   - name: employee_id
     in: formData
     type: integer
-    description: For employee profile pictures
   - name: product_id
     in: formData
     type: integer
-    description: For product thumbnails
   - name: is_primary
     in: formData
     type: boolean
-    description: Set as salon primary profile picture
 responses:
   201:
-    description: Image uploaded successfully
+    description: Image uploaded
   400:
-    description: Image file required or employee/product doesn't belong to salon
+    description: Invalid input
   500:
-    description: Failed to upload image
+    description: Failed
 """
     image = request.files.get('image')
     description = request.form.get('description', '')
-    employee_id = request.form.get('employee_id', None)  # For employee profile pictures
-    product_id = request.form.get('product_id', None)    # For product thumbnails
-    is_primary = request.form.get('is_primary', "false").lower() == "true" # For salon profile pictures
+    employee_id = request.form.get('employee_id')
+    product_id = request.form.get('product_id')
+    is_primary = request.form.get('is_primary', "false").lower() == "true"
+
+    employee_id = int(employee_id) if employee_id else None
+    product_id = int(product_id) if product_id else None
 
     appointment_id = request.form.get('appointment_id')
     stage = request.form.get('stage')  # 'before', 'after', or none
@@ -329,70 +327,81 @@ responses:
 
     if not image:
         return jsonify({'error': 'Image file is required'}), 400
-    
+
+    stage = request.form.get('stage')  # before/after
+
+    # Determine description
+    if stage in ["before", "after"]:
+        description = stage
+    elif not description:
+        description = 'reference'
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
 
+        # Validate employee belongs to salon
         if employee_id:
-            query = """
-                select employee_id 
-                from employees
-                where employee_id = %s and salon_id = %s
-            """
-            cursor.execute(query, (employee_id, salon_id))
+            cursor.execute("""
+                SELECT employee_id FROM employees
+                WHERE employee_id = %s AND salon_id = %s
+            """, (employee_id, salon_id))
+
             if not cursor.fetchone():
                 cursor.close()
                 return jsonify({'error': f'Employee {employee_id} does not belong to salon {salon_id}'}), 400
-            
+
+        # Validate product belongs to salon
         if product_id:
-            query = """
-                select product_id
-                from products
-                where product_id = %s and salon_id = %s
-            """
-            cursor.execute(query, (product_id, salon_id))
+            cursor.execute("""
+                SELECT product_id FROM products
+                WHERE product_id = %s AND salon_id = %s
+            """, (product_id, salon_id))
+
             if not cursor.fetchone():
                 cursor.close()
                 return jsonify({'error': f'Product {product_id} does not belong to salon {salon_id}'}), 400
-            
-        #remove the previous profile photo
+
+        # Handle primary image switch
         if is_primary and not employee_id and not product_id:
-            query = """
-                update salon_gallery
-                set is_primary = false 
-                where salon_id = %s and is_primary = true
-            """
-            cursor.execute(query, (salon_id,))
+            cursor.execute("""
+                SELECT image_url FROM salon_gallery
+                WHERE salon_id = %s AND is_primary = TRUE
+            """, (salon_id,))
+            old_primary = cursor.fetchone()
 
-        #insert the image record
-        upload_folder = os.path.join(current_app.root_path, 'gallery')
-        os.makedirs(upload_folder, exist_ok=True)
+            if old_primary and old_primary[0]:
+                S3Uploader.delete_image_from_s3(old_primary[0])
 
-        filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{image.filename}"
-        filepath = os.path.join(upload_folder, filename)
+            cursor.execute("""
+                UPDATE salon_gallery
+                SET is_primary = FALSE
+                WHERE salon_id = %s AND is_primary = TRUE
+            """, (salon_id,))
 
-        image.save(filepath)
-        image_url = f"/gallery/{filename}"
+        # Upload new image
+        image_url = S3Uploader.upload_image_to_s3(image)
 
-        query = """
-            insert into salon_gallery(salon_id, employee_id, product_id, appointment_id, image_url, description, is_primary, created_at, last_modified)
-            values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """
-        cursor.execute(query, (salon_id, employee_id, product_id, appointment_id, image_url, description, is_primary, datetime.now(), datetime.now()))
+        # Insert
+        cursor.execute("""
+            INSERT INTO salon_gallery 
+            (salon_id, image_url, description, employee_id, product_id, is_primary, created_at, last_modified)
+            VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+        """, (salon_id, image_url, description, employee_id, product_id, is_primary))
+
         mysql.connection.commit()
         gallery_id = cursor.lastrowid
         cursor.close()
 
         return jsonify({
-            'message': 'Image uploaded successfully',
-            'gallery_id': gallery_id,
-            'image_url': image_url
-        }), 201  
+            "message": "Image uploaded successfully",
+            "gallery_id": gallery_id,
+            "image_url": image_url
+        }), 201
 
     except Exception as e:
         log_error(str(e), session.get("user_id"))
-        return jsonify({'error': f'Failed to upload image: {str(e)}'}), 500
+        return jsonify({'error': f"Failed to upload image: {str(e)}"}), 500
+
 
 @salon_gallery_bp.route('/salon/gallery/<int:gallery_id>/update', methods=['PUT'])
 def update_image(gallery_id):
@@ -431,40 +440,50 @@ responses:
 
     if not any([image, description]):
         return jsonify({'error': 'No fields to update provided'}), 400
-    
+
     try:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
-        query = """
-            select image_url from salon_gallery
-            where gallery_id = %s
-        """
-        cursor.execute(query, (gallery_id,))
+
+        # Get existing data
+        cursor.execute("""
+            SELECT image_url, description
+            FROM salon_gallery
+            WHERE gallery_id = %s
+        """, (gallery_id,))
         gallery = cursor.fetchone()
+
         if not gallery:
             cursor.close()
             return jsonify({'error': 'Gallery image not found'}), 404
 
-        new_image_url = gallery[0]
+        old_image_url = gallery[0]
+        old_description = gallery[1]
+
+        new_image_url = old_image_url
+
         if image:
-            upload_folder = os.path.join(current_app.root_path, 'gallery')
-            os.makedirs(upload_folder, exist_ok=True)
+            new_image_url = S3Uploader.upload_image_to_s3(image)
 
-            filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{image.filename}"
-            filepath = os.path.join(upload_folder, filename)
+            if old_image_url:
+                S3Uploader.delete_image_from_s3(old_image_url)
 
-            image.save(filepath)
-            new_image_url = f"/gallery/{filename}"
+        if description is None:
+            description = old_description
 
-        query = """
-            update salon_gallery
-            set image_url = %s, description = %s, last_modified = now()
-            where gallery_id = %s
-        """
-        cursor.execute(query, (new_image_url, description, gallery_id))
+        cursor.execute("""
+            UPDATE salon_gallery
+            SET image_url = %s,
+                description = %s,
+                last_modified = NOW()
+            WHERE gallery_id = %s
+        """, (new_image_url, description, gallery_id))
+
         mysql.connection.commit()
         cursor.close()
+
         return jsonify({'message': 'Image updated successfully'}), 200
+
     except Exception as e:
         log_error(str(e), session.get("user_id"))
         return jsonify({'error': f'Failed to update image: {str(e)}'}), 500
@@ -494,26 +513,219 @@ responses:
         mysql = current_app.config['MYSQL']
         cursor = mysql.connection.cursor()
 
-        query = """
-            select gallery_id, is_primary
-            from salon_gallery 
-            where gallery_id = %s
-        """
-        cursor.execute(query, (gallery_id,))
-        image = cursor.fetchone()
-        if not image:
+        cursor.execute("""
+            SELECT image_url, salon_id, is_primary
+            FROM salon_gallery
+            WHERE gallery_id = %s
+        """, (gallery_id,))
+        row = cursor.fetchone()
+
+        if not row:
             cursor.close()
             return jsonify({'error': 'Image not found'}), 404
-        
-        query = """
-            delete from salon_gallery
-            where gallery_id = %s
-        """
-        cursor.execute(query, (gallery_id,))
+
+        image_url = row[0]
+        salon_id = row[1]
+        is_primary = row[2]
+
+        if image_url:
+            S3Uploader.delete_image_from_s3(image_url)
+
+        cursor.execute("""
+            DELETE FROM salon_gallery
+            WHERE gallery_id = %s
+        """, (gallery_id,))
         mysql.connection.commit()
+        
+        if is_primary:
+            cursor.execute("""
+                UPDATE salon_gallery
+                SET is_primary = FALSE
+                WHERE salon_id = %s
+            """, (salon_id,))
+            mysql.connection.commit()
+
         cursor.close()
-        return jsonify({'message': 'Image deleted successfully', 'gallery_id': gallery_id}), 200
+
+        return jsonify({
+            'message': 'Image deleted successfully',
+            'gallery_id': gallery_id
+        }), 200
 
     except Exception as e:
         log_error(str(e), session.get("user_id"))
         return jsonify({'error': f'Failed to delete image: {str(e)}'}), 500
+
+# Before service images
+@salon_gallery_bp.route('/salon/<int:salon_id>/appointments/<int:appointment_id>/before-image', methods=['GET'])
+def get_before_image(salon_id, appointment_id):
+    """
+    Get before-service photos for a specific appointment
+    ---
+    tags:
+      - Salon Gallery
+    parameters:
+      - name: salon_id
+        in: path
+        required: true
+        type: integer
+      - name: appointment_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: List of before-service images
+      404:
+        description: No before-service photos found
+      500:
+        description: Failed to fetch before-service images
+    """
+    cursor = None
+    try:
+        mysql = current_app.config["MYSQL"]
+        cursor = mysql.connection.cursor()
+        query = """
+          select gallery_id, salon_id, appointment_id, image_url, description, created_at
+          from salon_gallery
+          where salon_id = %s and appointment_id = %s and description = 'before'
+          order by created_at desc
+        """
+        cursor.execute(query, (salon_id, appointment_id))
+        images = cursor.fetchall()
+        if not images:
+            return jsonify({"message": "No before-service photos found"}), 404
+
+        return jsonify([{
+            "gallery_id": image[0],
+            "salon_id": image[1],
+            "appointment_id": image[2],
+            "image_url": image[3],
+            "description": image[4],
+            "created_at": image[5].strftime('%Y-%m-%d %H:%M:%S') if image[5] else None
+        } for image in images]), 200
+    except Exception as e:
+        log_error(str(e), session.get("user_id"))
+        return jsonify({"error": "Failed to fetch before-service images", "details": str(e)}), 500
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+
+# After service images
+@salon_gallery_bp.route('/salon/<int:salon_id>/appointments/<int:appointment_id>/after-image', methods=['GET'])
+def get_after_image(salon_id, appointment_id):
+    """
+    Get after-service photos for a specific appointment
+    ---
+    tags:
+      - Salon Gallery
+    parameters:
+      - name: salon_id
+        in: path
+        required: true
+        type: integer
+      - name: appointment_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: List of after-service images
+      404:
+        description: No after service photos found
+      500:
+        description: Failed to fetch after service images
+    """
+    cursor = None
+    try:
+        mysql = current_app.config["MYSQL"]
+        cursor = mysql.connection.cursor()
+        query = """
+          select gallery_id, salon_id, appointment_id, image_url, description, created_at
+          from salon_gallery
+          where salon_id = %s and appointment_id = %s and description = 'after'
+          order by created_at desc
+        """
+        cursor.execute(query, (salon_id, appointment_id))
+        images = cursor.fetchall()
+        if not images:
+            return jsonify({"message": "No after service photos found"}), 404
+
+        return jsonify([{
+            "gallery_id": image[0],
+            "salon_id": image[1],
+            "appointment_id": image[2],
+            "image_url": image[3],
+            "description": image[4],
+            "created_at": image[5].strftime('%Y-%m-%d %H:%M:%S') if image[5] else None
+        } for image in images]), 200
+    except Exception as e:
+        log_error(str(e), session.get("user_id"))
+        return jsonify({"error": "Failed to fetch after service images", "details": str(e)}), 500
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+
+# Reference images
+@salon_gallery_bp.route('/salon/<int:salon_id>/appointments/<int:appointment_id>/reference-images', methods=['GET'])
+def get_reference_images(salon_id, appointment_id):
+    """
+    Get reference images for a specific appointment (non-before/after images)
+    ---
+    tags:
+      - Salon Gallery
+    parameters:
+      - name: salon_id
+        in: path
+        required: true
+        type: integer
+      - name: appointment_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: List of reference images
+      404:
+        description: No reference photos found
+      500:
+        description: Failed to fetch reference images
+    """
+    cursor = None
+    try:
+        mysql = current_app.config["MYSQL"]
+        cursor = mysql.connection.cursor()
+        query = """
+          select gallery_id, salon_id, appointment_id, image_url, description, created_at
+          from salon_gallery
+          where salon_id = %s and appointment_id = %s and description = 'reference'
+          order by created_at desc
+        """
+        cursor.execute(query, (salon_id, appointment_id))
+        images = cursor.fetchall()
+        if not images:
+            return jsonify({"message": "No reference photos found"}), 404
+
+        return jsonify([{
+            "gallery_id": image[0],
+            "salon_id": image[1],
+            "appointment_id": image[2],
+            "image_url": image[3],
+            "description": image[4],
+            "created_at": image[5].strftime('%Y-%m-%d %H:%M:%S') if image[5] else None
+        } for image in images]), 200
+    except Exception as e:
+        log_error(str(e), session.get("user_id"))
+        return jsonify({"error": "Failed to fetch reference images", "details": str(e)}), 500
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
