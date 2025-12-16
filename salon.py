@@ -258,7 +258,14 @@ def get_salon_info(salon_id):
         except Exception:
             master_tag_list = []
 
-        cursor.close()
+        cursor.execute("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM salon_gallery
+                WHERE salon_id = %s
+                AND is_primary = TRUE
+            ) AS hasPrimaryImage""", (salon_id,))
+        primary_img = cursor.fetchone()
 
         return jsonify({
             'salon': {
@@ -274,14 +281,17 @@ def get_salon_info(salon_id):
                 "postal_code": salon[10],
                 "country": salon[11],
                 "average_rating": salon[12],
-                "is_verified": bool(salon[14]) if salon[14] is not None else False
+                "is_verified": bool(salon[14]) if salon[14] is not None else False,
+                "has_primary_img": bool(primary_img[0]) if primary_img else False
             },
-            'tags' : tag_list,
-            'master_tags' : master_tag_list
+            "tags": tag_list,
+            "master_tags": master_tag_list
         }), 200
     except Exception as e:
         log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to fetch salon', 'details': str(e)}), 500
+    finally:
+        cursor.close()
     
 #send promotional emails to all customers of the salon who favorited the salon or had an appointment there
 @salon_bp.route('/salon/<int:salon_id>/promotions/email', methods=['POST'])
