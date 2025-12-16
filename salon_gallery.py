@@ -33,7 +33,17 @@ responses:
         cursor = mysql.connection.cursor()
 
         query = """
-            select gallery_id, salon_id, image_url, description, created_at, last_modified
+            select 
+              gallery_id, 
+              salon_id, 
+              image_url, 
+              description,
+              employee_id,
+              product_id,
+              appointment_id,
+              is_primary,
+              created_at, 
+              last_modified
             from salon_gallery
             where salon_id = %s
             order by created_at desc
@@ -44,7 +54,7 @@ responses:
 
         if not images:
             return jsonify({'message': 'No images found for this salon'}), 404
-        
+        '''
         gallery = []
         for image in images:
             gallery.append({
@@ -57,6 +67,48 @@ responses:
                 })
         
         return jsonify({'salon_id': salon_id, 'gallery': gallery}), 200
+        '''
+        response = {
+            "salon_id": salon_id,
+            "gallery": [],
+            "primary_image": None,
+            "employee_images": [],
+            "product_images": [],
+            "appointment_images": []
+        }
+
+        for img in images:
+          image_obj = {
+            "gallery_id": img[0],
+            "salon_id": img[1],
+            "image_url": img[2],
+            "description": img[3],
+            "created_at": img[8].strftime('%Y-%m-%d %H:%M:%S') if img[8] else None,
+            "last_modified": img[9].strftime('%Y-%m-%d %H:%M:%S') if img[9] else None
+          }
+
+          employee_id = img[4]
+          product_id = img[5]
+          appointment_id = img[6]
+          is_primary = img[7]
+
+          if is_primary and response["primary_image"] is None:
+            response["primary_image"] = image_obj
+            continue
+
+          if employee_id is None and product_id is None and appointment_id is None and not bool(is_primary):
+              response["gallery"].append(image_obj)
+          elif employee_id is not None:
+              image_obj["employee_id"] = employee_id
+              response["employee_images"].append(image_obj)
+          elif product_id is not None:
+              image_obj["product_id"] = product_id
+              response["product_images"].append(image_obj)
+          elif appointment_id is not None:
+              image_obj["appointment_id"] = appointment_id
+              response["appointment_images"].append(image_obj)
+
+        return jsonify(response), 200
     except Exception as e:
         log_error(str(e), session.get("user_id"))
         cursor.close()
