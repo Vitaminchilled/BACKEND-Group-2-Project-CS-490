@@ -225,7 +225,7 @@ def verifySalon():
             """, (salon_id,))
         
         #notify the owner via email
-            try:
+        '''    try:
                 send_email(
                     to=salon_email,
                     subject="Salon Application Approved",
@@ -233,7 +233,7 @@ def verifySalon():
                 )
             except Exception as e:
                 log_error(str(e), session.get("user_id"))
-                print(f"Failed to send approval email: {e}")
+                print(f"Failed to send approval email: {e}")'''
         else:
             reason = data.get("reason", "No reason provided")
             #log the reason for rejection
@@ -249,7 +249,7 @@ def verifySalon():
                 values (%s, %s, %s)
             """, (owner_id, "Salon Application Rejected", f"Dear {salon_name}, your salon application has been rejected for the following reason: {reason}"))
 
-            try:
+            '''try:
                 send_email(
                     to=salon_email,
                     subject="Salon Application Rejected",
@@ -257,7 +257,7 @@ def verifySalon():
                 )
             except Exception as e:
                 log_error(str(e), session.get("user_id"))
-                print(f"Failed to send rejection email: {e}")
+                print(f"Failed to send rejection email: {e}")'''
 
             #delete the salon's data from all related tables
             cursor.execute("""
