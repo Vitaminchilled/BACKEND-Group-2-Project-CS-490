@@ -421,6 +421,8 @@ def processPayment():
         user_id = data.get('user_id')
         payment_data = data.get('payment_data')
         applied_rewards = data.get('applied_rewards', {})
+        applied_promos = data.get('applied_promos', {})
+        appointment_items = data.get('appointment_items', [])
         
         if not user_id or not payment_data:
             return jsonify({'error': 'Missing required payment information'}), 400
@@ -451,9 +453,6 @@ def processPayment():
         cart_cols = [desc[0] for desc in cursor.description]
         cart_items_list = [dict(zip(cart_cols, row)) for row in cart_items]
         
-        if not cart_items_list:
-            cursor.close()
-            return jsonify({'error': 'No items in cart'}), 400
         address_id = None
         if payment_data.get('rememberAddress') or payment_data.get('remember_address'):
             address_check = """
@@ -490,6 +489,7 @@ def processPayment():
                     payment_data.get('country', 'US')
                 ))
                 address_id = cursor.lastrowid
+        
         wallet_id = None
         if payment_data.get('rememberCard') or payment_data.get('remember_card'):
             card_number = payment_data['card_number'].replace(' ', '')
@@ -536,8 +536,33 @@ def processPayment():
                     'items': [],
                     'subtotal': 0
                 }
-            salon_totals[salon_id]['items'].append(item)
+            salon_totals[salon_id]['items'].append({
+                'type': 'product',
+                'product_id': item['product_id'],
+                'product_name': item['product_name'],
+                'quantity': item['quantity'],
+                'unit_price': item['unit_price'],
+                'line_total': item['line_total']
+            })
             salon_totals[salon_id]['subtotal'] += float(item['line_total'])
+        
+        for appt in appointment_items:
+            salon_id = str(appt['salon_id'])
+            if salon_id not in salon_totals:
+                salon_totals[salon_id] = {
+                    'items': [],
+                    'subtotal': 0
+                }
+            salon_totals[salon_id]['items'].append({
+                'type': 'appointment',
+                'service_id': appt['service_id'],
+                'service_name': appt['service_name'],
+                'service_price': appt['service_price'],
+                'appointment_date': appt['appointment_date'],
+                'start_time': appt['start_time'],
+                'quantity': 1
+            })
+            salon_totals[salon_id]['subtotal'] += float(appt['service_price'])
         
         invoice_ids = []
         for salon_id, salon_data in salon_totals.items():
@@ -554,6 +579,15 @@ def processPayment():
                 reward_used = reward.get('loyalty_program_id')
             
             final_subtotal = subtotal - discount
+            
+            if salon_id in applied_promos and applied_promos[salon_id]:
+                promo = applied_promos[salon_id]
+                if promo.get('is_percentage'):
+                    promo_discount = final_subtotal * (float(promo.get('discount_value', 0)) / 100)
+                else:
+                    promo_discount = float(promo.get('discount_value', 0))
+                final_subtotal -= promo_discount
+            
             tax = final_subtotal * 0.07 
             total = final_subtotal + tax
             
@@ -566,25 +600,39 @@ def processPayment():
             invoice_ids.append(invoice_id)
             
             for item in salon_data['items']:
-                line_item_insert = """
-                    INSERT INTO invoice_line_items (invoice_id, item_type, product_id, description, quantity, unit_price)
-                    VALUES (%s, 'product', %s, %s, %s, %s)
-                """
-                cursor.execute(line_item_insert, (
-                    invoice_id,
-                    item['product_id'],
-                    item['product_name'],
-                    item['quantity'],
-                    item['unit_price']
-                ))
+                if item.get('type') == 'appointment':
+                    line_item_insert = """
+                        INSERT INTO invoice_line_items (invoice_id, item_type, service_id, description, quantity, unit_price)
+                        VALUES (%s, 'service', %s, %s, %s, %s)
+                    """
+                    cursor.execute(line_item_insert, (
+                        invoice_id,
+                        item['service_id'],
+                        f"{item['service_name']} - {item['appointment_date']} at {item['start_time']}",
+                        1,
+                        item['service_price']
+                    ))
+                else:
+                    line_item_insert = """
+                        INSERT INTO invoice_line_items (invoice_id, item_type, product_id, description, quantity, unit_price)
+                        VALUES (%s, 'product', %s, %s, %s, %s)
+                    """
+                    cursor.execute(line_item_insert, (
+                        invoice_id,
+                        item['product_id'],
+                        item['product_name'],
+                        item['quantity'],
+                        item['unit_price']
+                    ))
             
             for item in salon_data['items']:
-                stock_update = """
-                    UPDATE products 
-                    SET stock_quantity = stock_quantity - %s 
-                    WHERE product_id = %s
-                """
-                cursor.execute(stock_update, (item['quantity'], item['product_id']))
+                if item.get('type') == 'product':
+                    stock_update = """
+                        UPDATE products 
+                        SET stock_quantity = stock_quantity - %s 
+                        WHERE product_id = %s
+                    """
+                    cursor.execute(stock_update, (item['quantity'], item['product_id']))
             
             points_earned = int(final_subtotal)
             points_check = """
@@ -779,7 +827,7 @@ def allAvailableRewards():
             LEFT JOIN 
                 loyalty_programs lp ON s.salon_id = lp.salon_id
                     AND (lp.start_date IS NULL OR lp.start_date <= CURDATE())
-                    AND (lp.end_date IS NULL OR lp.end_date > CURDATE())
+                    AND (lp.end_date IS NULL OR lp.end_date >= CURDATE())
                     AND lp.points_required <= COALESCE(cp.available_points, 0)
             LEFT JOIN
                 entity_tags et ON et.entity_type = 'loyalty' AND et.entity_id = lp.loyalty_program_id
