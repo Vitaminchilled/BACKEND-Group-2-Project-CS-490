@@ -779,7 +779,7 @@ def allAvailableRewards():
             LEFT JOIN 
                 loyalty_programs lp ON s.salon_id = lp.salon_id
                     AND (lp.start_date IS NULL OR lp.start_date <= CURDATE())
-                    AND (lp.end_date IS NULL OR lp.end_date >= CURDATE())
+                    AND (lp.end_date IS NULL OR lp.end_date > CURDATE())
                     AND lp.points_required <= COALESCE(cp.available_points, 0)
             LEFT JOIN
                 entity_tags et ON et.entity_type = 'loyalty' AND et.entity_id = lp.loyalty_program_id
