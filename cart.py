@@ -400,7 +400,6 @@ def getSavedPaymentInfo():
     except Exception as e:
         log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Error retrieving saved payment info'}), 500
-
 @cart_bp.route('/cart/processPayment', methods=['POST'])
 def processPayment():
     """
@@ -528,15 +527,16 @@ def processPayment():
             ))
             wallet_id = cursor.lastrowid
         
-        salon_totals = {}
+        # Group products by salon (appointments will be processed separately)
+        salon_product_totals = {}
         for item in cart_items_list:
             salon_id = str(item['salon_id'])
-            if salon_id not in salon_totals:
-                salon_totals[salon_id] = {
+            if salon_id not in salon_product_totals:
+                salon_product_totals[salon_id] = {
                     'items': [],
                     'subtotal': 0
                 }
-            salon_totals[salon_id]['items'].append({
+            salon_product_totals[salon_id]['items'].append({
                 'type': 'product',
                 'product_id': item['product_id'],
                 'product_name': item['product_name'],
@@ -544,29 +544,114 @@ def processPayment():
                 'unit_price': item['unit_price'],
                 'line_total': item['line_total']
             })
-            salon_totals[salon_id]['subtotal'] += float(item['line_total'])
-        
-        for appt in appointment_items:
-            salon_id = str(appt.get('salon_id'))
-            if salon_id not in salon_totals:
-                salon_totals[salon_id] = {
-                    'items': [],
-                    'subtotal': 0
-                }
-            salon_totals[salon_id]['items'].append({
-                'type': 'appointment',
-                'appointment_id': appt.get('appointment_id'),
-                'service_id': appt.get('service_id'),
-                'service_name': appt.get('service_name'),
-                'service_price': appt.get('service_price'),
-                'appointment_date': appt.get('appointment_date'),
-                'start_time': appt.get('start_time'),
-                'quantity': 1
-            })
-            salon_totals[salon_id]['subtotal'] += float(appt.get('service_price', 0))
+            salon_product_totals[salon_id]['subtotal'] += float(item['line_total'])
         
         invoice_ids = []
-        for salon_id, salon_data in salon_totals.items():
+        
+        # Process appointments - each appointment gets its own invoice
+        for appt in appointment_items:
+            salon_id = str(appt.get('salon_id'))
+            service_price = float(appt.get('service_price', 0))
+            
+            # Apply discounts
+            discount = 0
+            reward_used = None
+            if salon_id in applied_rewards and applied_rewards[salon_id]:
+                reward = applied_rewards[salon_id]
+                if reward.get('is_percentage'):
+                    discount = service_price * (float(reward.get('discount_value', 0)) / 100)
+                else:
+                    discount = float(reward.get('discount_value', 0))
+                reward_used = reward.get('loyalty_program_id')
+            
+            final_subtotal = service_price - discount
+            
+            if salon_id in applied_promos and applied_promos[salon_id]:
+                promo = applied_promos[salon_id]
+                if promo.get('is_percentage'):
+                    promo_discount = final_subtotal * (float(promo.get('discount_value', 0)) / 100)
+                else:
+                    promo_discount = float(promo.get('discount_value', 0))
+                final_subtotal -= promo_discount
+            
+            tax = final_subtotal * 0.07
+            total = final_subtotal + tax
+            
+            # Create invoice WITH appointment_id
+            appointment_id = appt.get('appointment_id')
+            if not appointment_id:
+                raise ValueError(f"Appointment is missing appointment_id: {appt}")
+            
+            invoice_insert = """
+                INSERT INTO invoices (customer_id, appointment_id, wallet_id, issued_date, status, subtotal_amount, tax_amount, total_amount)
+                VALUES (%s, %s, %s, CURDATE(), 'paid', %s, %s, %s)
+            """
+            cursor.execute(invoice_insert, (user_id, appointment_id, wallet_id, final_subtotal, tax, total))
+            invoice_id = cursor.lastrowid
+            invoice_ids.append(invoice_id)
+            
+            # Add line item for the service
+            service_name = appt.get('service_name', 'Appointment')
+            appointment_date = appt.get('appointment_date', '')
+            start_time = appt.get('start_time', '')
+            description = f"{service_name} - {appointment_date} at {start_time}"
+            
+            line_item_insert = """
+                INSERT INTO invoice_line_items (invoice_id, item_type, service_id, description, quantity, unit_price)
+                VALUES (%s, 'service', %s, %s, %s, %s)
+            """
+            cursor.execute(line_item_insert, (
+                invoice_id,
+                appt.get('service_id'),
+                description,
+                1,
+                service_price
+            ))
+            
+            # Update customer points
+            points_earned = int(final_subtotal)
+            points_check = """
+                SELECT points_id, points_earned, points_redeemed, available_points 
+                FROM customer_points 
+                WHERE salon_id = %s AND customer_id = %s
+            """
+            cursor.execute(points_check, (salon_id, user_id))
+            existing_points = cursor.fetchone()
+            
+            if existing_points:
+                points_update = """
+                    UPDATE customer_points 
+                    SET points_earned = points_earned + %s,
+                        available_points = available_points + %s
+                    WHERE salon_id = %s AND customer_id = %s
+                """
+                cursor.execute(points_update, (points_earned, points_earned, salon_id, user_id))
+            else:
+                points_insert = """
+                    INSERT INTO customer_points (salon_id, customer_id, points_per_dollar, points_earned, points_redeemed, available_points)
+                    VALUES (%s, %s, 1.00, %s, 0, %s)
+                """
+                cursor.execute(points_insert, (salon_id, user_id, points_earned, points_earned))
+            
+            # Deduct reward points if used
+            if reward_used:
+                points_deduct = """
+                    UPDATE customer_points 
+                    SET points_redeemed = points_redeemed + %s,
+                        available_points = available_points - %s
+                    WHERE salon_id = %s AND customer_id = %s
+                """
+                reward_points_query = """
+                    SELECT points_required FROM loyalty_programs WHERE loyalty_program_id = %s
+                """
+                cursor.execute(reward_points_query, (reward_used,))
+                reward_points_result = cursor.fetchone()
+                points_to_deduct = reward_points_result[0] if reward_points_result else 0
+                
+                cursor.execute(points_deduct, (points_to_deduct, points_to_deduct, salon_id, user_id))
+        
+        # Process products - create invoices per salon
+        for salon_id, salon_data in salon_product_totals.items():
             subtotal = salon_data['subtotal']
 
             discount = 0
@@ -592,69 +677,39 @@ def processPayment():
             tax = final_subtotal * 0.07 
             total = final_subtotal + tax
             
-            # Check if this salon has an appointment (for linking to invoice)
-            appointment_id = None
-            for item in salon_data['items']:
-                if item.get('type') == 'appointment' and item.get('appointment_id'):
-                    appointment_id = item.get('appointment_id')
-                    break
-            
-            if appointment_id:
-                invoice_insert = """
-                    INSERT INTO invoices (customer_id, appointment_id, wallet_id, issued_date, status, subtotal_amount, tax_amount, total_amount)
-                    VALUES (%s, %s, %s, CURDATE(), 'paid', %s, %s, %s)
-                """
-                cursor.execute(invoice_insert, (user_id, appointment_id, wallet_id, final_subtotal, tax, total))
-            else:
-                invoice_insert = """
-                    INSERT INTO invoices (customer_id, wallet_id, issued_date, status, subtotal_amount, tax_amount, total_amount)
-                    VALUES (%s, %s, CURDATE(), 'paid', %s, %s, %s)
-                """
-                cursor.execute(invoice_insert, (user_id, wallet_id, final_subtotal, tax, total))
-            
+            # Create invoice WITHOUT appointment_id (products only)
+            invoice_insert = """
+                INSERT INTO invoices (customer_id, wallet_id, issued_date, status, subtotal_amount, tax_amount, total_amount)
+                VALUES (%s, %s, CURDATE(), 'paid', %s, %s, %s)
+            """
+            cursor.execute(invoice_insert, (user_id, wallet_id, final_subtotal, tax, total))
             invoice_id = cursor.lastrowid
             invoice_ids.append(invoice_id)
             
+            # Add line items for products
             for item in salon_data['items']:
-                if item.get('type') == 'appointment':
-                    service_name = item.get('service_name', 'Appointment')
-                    appointment_date = item.get('appointment_date', '')
-                    start_time = item.get('start_time', '')
-                    description = f"{service_name} - {appointment_date} at {start_time}"
-                    
-                    line_item_insert = """
-                        INSERT INTO invoice_line_items (invoice_id, item_type, service_id, description, quantity, unit_price)
-                        VALUES (%s, 'service', %s, %s, %s, %s)
-                    """
-                    cursor.execute(line_item_insert, (
-                        invoice_id,
-                        item.get('service_id'),
-                        description,
-                        1,
-                        float(item.get('service_price', 0))
-                    ))
-                else:
-                    line_item_insert = """
-                        INSERT INTO invoice_line_items (invoice_id, item_type, product_id, description, quantity, unit_price)
-                        VALUES (%s, 'product', %s, %s, %s, %s)
-                    """
-                    cursor.execute(line_item_insert, (
-                        invoice_id,
-                        item.get('product_id'),
-                        item.get('product_name'),
-                        item.get('quantity'),
-                        float(item.get('unit_price', 0))
-                    ))
+                line_item_insert = """
+                    INSERT INTO invoice_line_items (invoice_id, item_type, product_id, description, quantity, unit_price)
+                    VALUES (%s, 'product', %s, %s, %s, %s)
+                """
+                cursor.execute(line_item_insert, (
+                    invoice_id,
+                    item.get('product_id'),
+                    item.get('product_name'),
+                    item.get('quantity'),
+                    float(item.get('unit_price', 0))
+                ))
             
+            # Update product stock
             for item in salon_data['items']:
-                if item.get('type') == 'product':
-                    stock_update = """
-                        UPDATE products 
-                        SET stock_quantity = stock_quantity - %s 
-                        WHERE product_id = %s
-                    """
-                    cursor.execute(stock_update, (item.get('quantity'), item.get('product_id')))
+                stock_update = """
+                    UPDATE products 
+                    SET stock_quantity = stock_quantity - %s 
+                    WHERE product_id = %s
+                """
+                cursor.execute(stock_update, (item.get('quantity'), item.get('product_id')))
             
+            # Update customer points
             points_earned = int(final_subtotal)
             points_check = """
                 SELECT points_id, points_earned, points_redeemed, available_points 
@@ -695,8 +750,13 @@ def processPayment():
                 
                 cursor.execute(points_deduct, (points_to_deduct, points_to_deduct, salon_id, user_id))
         
+        # Mark carts as completed
         cursor.execute("UPDATE carts SET status = 'completed' WHERE customer_id = %s AND status = 'active'", (user_id,))
-        total_spent = sum([float(st['subtotal']) for st in salon_totals.values()])
+        
+        # Update user history
+        total_spent = sum([float(st['subtotal']) for st in salon_product_totals.values()])
+        total_spent += sum([float(appt.get('service_price', 0)) for appt in appointment_items])
+        
         history_check = "SELECT user_history_id FROM user_history WHERE user_id = %s"
         cursor.execute(history_check, (user_id,))
         existing_history = cursor.fetchone()
