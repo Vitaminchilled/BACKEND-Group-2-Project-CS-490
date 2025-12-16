@@ -285,7 +285,6 @@ def verifySalon():
         cursor.execute("DELETE FROM customer_vouchers WHERE salon_id = %s", (salon_id,))
         cursor.execute("DELETE FROM carts WHERE salon_id = %s", (salon_id,))
         cursor.execute("DELETE FROM appointments WHERE salon_id = %s", (salon_id,))
-        cursor.execute("DELETE FROM carts WHERE salon_id = %s", (salon_id,))
         cursor.execute("DELETE FROM employee_salaries WHERE salon_id = %s", (salon_id,))
         cursor.execute("DELETE FROM salon_gallery WHERE salon_id = %s", (salon_id,))
         cursor.execute("DELETE FROM employees WHERE salon_id = %s", (salon_id,))
