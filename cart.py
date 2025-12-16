@@ -592,11 +592,26 @@ def processPayment():
             tax = final_subtotal * 0.07 
             total = final_subtotal + tax
             
-            invoice_insert = """
-                INSERT INTO invoices (customer_id, wallet_id, issued_date, status, subtotal_amount, tax_amount, total_amount)
-                VALUES (%s, %s, CURDATE(), 'paid', %s, %s, %s)
-            """
-            cursor.execute(invoice_insert, (user_id, wallet_id, final_subtotal, tax, total))
+            # Check if this salon has an appointment (for linking to invoice)
+            appointment_id = None
+            for item in salon_data['items']:
+                if item.get('type') == 'appointment' and item.get('appointment_id'):
+                    appointment_id = item.get('appointment_id')
+                    break
+            
+            if appointment_id:
+                invoice_insert = """
+                    INSERT INTO invoices (customer_id, appointment_id, wallet_id, issued_date, status, subtotal_amount, tax_amount, total_amount)
+                    VALUES (%s, %s, %s, CURDATE(), 'paid', %s, %s, %s)
+                """
+                cursor.execute(invoice_insert, (user_id, appointment_id, wallet_id, final_subtotal, tax, total))
+            else:
+                invoice_insert = """
+                    INSERT INTO invoices (customer_id, wallet_id, issued_date, status, subtotal_amount, tax_amount, total_amount)
+                    VALUES (%s, %s, CURDATE(), 'paid', %s, %s, %s)
+                """
+                cursor.execute(invoice_insert, (user_id, wallet_id, final_subtotal, tax, total))
+            
             invoice_id = cursor.lastrowid
             invoice_ids.append(invoice_id)
             
@@ -608,12 +623,11 @@ def processPayment():
                     description = f"{service_name} - {appointment_date} at {start_time}"
                     
                     line_item_insert = """
-                        INSERT INTO invoice_line_items (invoice_id, item_type, appointment_id, service_id, description, quantity, unit_price)
-                        VALUES (%s, 'service', %s, %s, %s, %s, %s)
+                        INSERT INTO invoice_line_items (invoice_id, item_type, service_id, description, quantity, unit_price)
+                        VALUES (%s, 'service', %s, %s, %s, %s)
                     """
                     cursor.execute(line_item_insert, (
                         invoice_id,
-                        item.get('appointment_id'),
                         item.get('service_id'),
                         description,
                         1,
