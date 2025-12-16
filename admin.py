@@ -233,14 +233,14 @@ def verifySalon():
                 )
             except Exception as e:
                 log_error(str(e), session.get("user_id"))
-                print(f"Failed to send approval email: {e}")'''
+                print(f"Failed to send approval email: {e}")
         else:
             reason = data.get("reason", "No reason provided")
             #log the reason for rejection
             cursor.execute("""
                 insert into salon_rejections(salon_id, admin_id, reason)
                 values (%s, %s, %s)
-            """, (salon_id, session.get("user_id"), reason))
+            """, (salon_id, session.get("user_id"), reason))'''
 
             #notify the owner via email   
             
