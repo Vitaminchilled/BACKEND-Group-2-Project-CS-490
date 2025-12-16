@@ -303,6 +303,7 @@ def verifySalon():
         log_error(str(e), session.get("user_id"))
         return jsonify({'error': 'Failed to verify salon', 'details': str(e)}), 500
 
+
 #Admin User page - Deletes specific user (WORKS)
 @admin_bp.route('/admin/deleteUser', methods=['DELETE'])
 def deleteUser():
@@ -341,8 +342,8 @@ def deleteUser():
         cursor.execute("SELECT role, email, first_name FROM users WHERE user_id = %s", (user_id,))
         user_data = cursor.fetchone()
         role = user_data[0]
-        user_email = user_data[1]
-        user_name = user_data[2]
+        #user_email = user_data[1]
+        #user_name = user_data[2]
 
         #notify why the account was deleted
         '''try:
@@ -355,7 +356,7 @@ def deleteUser():
             log_error(str(e), session.get("user_id"))
             print(f"Failed to send account deletion email: {e}")'''
 
-        cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
 
         if role == 'owner':
             #Get owners salon
@@ -382,8 +383,8 @@ def deleteUser():
                 cursor.execute("DELETE FROM salons WHERE salon_id = %s", (salon_id,))
                 cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
         
-        cursor.execute("DELETE FROM reviews WHERE customer_id = %s", (user_id,))
         cursor.execute("DELETE FROM review_replies WHERE user_id = %s", (user_id,))
+        cursor.execute("DELETE FROM reviews WHERE customer_id = %s", (user_id,))
         cursor.execute("DELETE FROM user_history WHERE user_id = %s", (user_id,))
         cursor.execute("DELETE FROM customer_points WHERE customer_id = %s", (user_id,))
         cursor.execute("DELETE FROM customer_vouchers WHERE customer_id = %s", (user_id,))
