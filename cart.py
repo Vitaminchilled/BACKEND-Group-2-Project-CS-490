@@ -547,7 +547,7 @@ def processPayment():
             salon_totals[salon_id]['subtotal'] += float(item['line_total'])
         
         for appt in appointment_items:
-            salon_id = str(appt['salon_id'])
+            salon_id = str(appt.get('salon_id'))
             if salon_id not in salon_totals:
                 salon_totals[salon_id] = {
                     'items': [],
@@ -555,14 +555,14 @@ def processPayment():
                 }
             salon_totals[salon_id]['items'].append({
                 'type': 'appointment',
-                'service_id': appt['service_id'],
-                'service_name': appt['service_name'],
-                'service_price': appt['service_price'],
-                'appointment_date': appt['appointment_date'],
-                'start_time': appt['start_time'],
+                'service_id': appt.get('service_id'),
+                'service_name': appt.get('service_name'),
+                'service_price': appt.get('service_price'),
+                'appointment_date': appt.get('appointment_date'),
+                'start_time': appt.get('start_time'),
                 'quantity': 1
             })
-            salon_totals[salon_id]['subtotal'] += float(appt['service_price'])
+            salon_totals[salon_id]['subtotal'] += float(appt.get('service_price', 0))
         
         invoice_ids = []
         for salon_id, salon_data in salon_totals.items():
@@ -601,16 +601,21 @@ def processPayment():
             
             for item in salon_data['items']:
                 if item.get('type') == 'appointment':
+                    service_name = item.get('service_name', 'Appointment')
+                    appointment_date = item.get('appointment_date', '')
+                    start_time = item.get('start_time', '')
+                    description = f"{service_name} - {appointment_date} at {start_time}"
+                    
                     line_item_insert = """
                         INSERT INTO invoice_line_items (invoice_id, item_type, service_id, description, quantity, unit_price)
                         VALUES (%s, 'service', %s, %s, %s, %s)
                     """
                     cursor.execute(line_item_insert, (
                         invoice_id,
-                        item['service_id'],
-                        f"{item['service_name']} - {item['appointment_date']} at {item['start_time']}",
+                        item.get('service_id'),
+                        description,
                         1,
-                        item['service_price']
+                        float(item.get('service_price', 0))
                     ))
                 else:
                     line_item_insert = """
@@ -619,10 +624,10 @@ def processPayment():
                     """
                     cursor.execute(line_item_insert, (
                         invoice_id,
-                        item['product_id'],
-                        item['product_name'],
-                        item['quantity'],
-                        item['unit_price']
+                        item.get('product_id'),
+                        item.get('product_name'),
+                        item.get('quantity'),
+                        float(item.get('unit_price', 0))
                     ))
             
             for item in salon_data['items']:
@@ -632,7 +637,7 @@ def processPayment():
                         SET stock_quantity = stock_quantity - %s 
                         WHERE product_id = %s
                     """
-                    cursor.execute(stock_update, (item['quantity'], item['product_id']))
+                    cursor.execute(stock_update, (item.get('quantity'), item.get('product_id')))
             
             points_earned = int(final_subtotal)
             points_check = """
