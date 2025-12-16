@@ -195,7 +195,7 @@ def verifySalon():
         mysql = current_app.config['MYSQL']
         conn = mysql.connection
         cursor = mysql.connection.cursor()
-        cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
 
         #get salon owner info
         '''cursor.execute("""
@@ -352,7 +352,7 @@ def deleteUser():
             log_error(str(e), session.get("user_id"))
             print(f"Failed to send account deletion email: {e}")
 
-        cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
 
         if role == 'owner':
             #Get owners salon
@@ -361,7 +361,7 @@ def deleteUser():
 
             if owned_salon:
                 salon_id = owned_salon[0]
-                cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
+                cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
                 cursor.execute("DELETE FROM salon_analytics WHERE salon_id = %s", (salon_id,))
                 cursor.execute("DELETE FROM promotions WHERE salon_id = %s", (salon_id,))
                 cursor.execute("DELETE FROM loyalty_programs WHERE salon_id = %s", (salon_id,))
