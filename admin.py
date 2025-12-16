@@ -223,7 +223,11 @@ def verifySalon():
                 SET is_verified = TRUE
                 WHERE salon_id = %s
             """, (salon_id,))
-        
+        else:
+            cursor.execute("""
+                insert into notifications(user_id, title, message)
+                values (%s, %s, %s)
+            """, (owner_id, "Salon Application Rejected", f"Dear {salon_name}, your salon application has been rejected for the following reason: {reason}"))
         #notify the owner via email
         '''    try:
                 send_email(
@@ -244,50 +248,50 @@ def verifySalon():
 
             #notify the owner via email   
             
-            cursor.execute("""
-                insert into notifications(user_id, title, message)
-                values (%s, %s, %s)
-            """, (owner_id, "Salon Application Rejected", f"Dear {salon_name}, your salon application has been rejected for the following reason: {reason}"))
+        cursor.execute("""
+            insert into notifications(user_id, title, message)
+            values (%s, %s, %s)
+        """, (owner_id, "Salon Application Rejected", f"Dear {salon_name}, your salon application has been rejected for the following reason: {reason}"))
 
-            '''try:
-                send_email(
-                    to=salon_email,
-                    subject="Salon Application Rejected",
-                    body=f"Dear {salon_name},\n\nWe regret to inform you that your salon application has been rejected for the following reason:\n\n{reason}\n\nIf you have any questions, please contact our support team.\n\nBest regards,\nSalon Management Team"
-                )
-            except Exception as e:
-                log_error(str(e), session.get("user_id"))
-                print(f"Failed to send rejection email: {e}")'''
+        '''try:
+            send_email(
+                to=salon_email,
+                subject="Salon Application Rejected",
+                body=f"Dear {salon_name},\n\nWe regret to inform you that your salon application has been rejected for the following reason:\n\n{reason}\n\nIf you have any questions, please contact our support team.\n\nBest regards,\nSalon Management Team"
+            )
+        except Exception as e:
+            log_error(str(e), session.get("user_id"))
+            print(f"Failed to send rejection email: {e}")'''
 
             #delete the salon's data from all related tables
-            cursor.execute("""
-                DELETE FROM review_replies 
-                WHERE review_id IN (SELECT review_id FROM reviews WHERE salon_id = %s)
-            """, (salon_id,))
-            cursor.execute("""
-                DELETE FROM invoice_line_items 
-                WHERE product_id IN (SELECT product_id FROM products WHERE salon_id = %s)
-                OR service_id IN (SELECT service_id FROM services WHERE salon_id = %s)
-            """, (salon_id, salon_id))
-            cursor.execute("DELETE FROM reviews WHERE salon_id = %s", (salon_id,))
-            cursor.execute("""
-                DELETE FROM invoices 
-                WHERE appointment_id IN (SELECT appointment_id FROM appointments WHERE salon_id = %s)
-            """, (salon_id,))
-            cursor.execute("""
-                DELETE FROM cart_items 
-                WHERE cart_id IN (SELECT cart_id FROM carts WHERE salon_id = %s)
-            """, (salon_id,))
-            cursor.execute("DELETE FROM customer_vouchers WHERE salon_id = %s", (salon_id,))
-            cursor.execute("DELETE FROM carts WHERE salon_id = %s", (salon_id,))
-            cursor.execute("DELETE FROM appointments WHERE salon_id = %s", (salon_id,))
-            cursor.execute("DELETE FROM carts WHERE salon_id = %s", (salon_id,))
-            cursor.execute("DELETE FROM employee_salaries WHERE salon_id = %s", (salon_id,))
-            cursor.execute("DELETE FROM salon_gallery WHERE salon_id = %s", (salon_id,))
-            cursor.execute("DELETE FROM employees WHERE salon_id = %s", (salon_id,))
-            cursor.execute("DELETE FROM addresses WHERE salon_id = %s AND entity_type = 'salon'", (salon_id,))
-            cursor.execute("DELETE FROM salons WHERE salon_id = %s", (salon_id,))
-            #cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
+        cursor.execute("""
+            DELETE FROM review_replies 
+            WHERE review_id IN (SELECT review_id FROM reviews WHERE salon_id = %s)
+        """, (salon_id,))
+        cursor.execute("""
+            DELETE FROM invoice_line_items 
+            WHERE product_id IN (SELECT product_id FROM products WHERE salon_id = %s)
+            OR service_id IN (SELECT service_id FROM services WHERE salon_id = %s)
+        """, (salon_id, salon_id))
+        cursor.execute("DELETE FROM reviews WHERE salon_id = %s", (salon_id,))
+        cursor.execute("""
+            DELETE FROM invoices 
+            WHERE appointment_id IN (SELECT appointment_id FROM appointments WHERE salon_id = %s)
+        """, (salon_id,))
+        cursor.execute("""
+            DELETE FROM cart_items 
+            WHERE cart_id IN (SELECT cart_id FROM carts WHERE salon_id = %s)
+        """, (salon_id,))
+        cursor.execute("DELETE FROM customer_vouchers WHERE salon_id = %s", (salon_id,))
+        cursor.execute("DELETE FROM carts WHERE salon_id = %s", (salon_id,))
+        cursor.execute("DELETE FROM appointments WHERE salon_id = %s", (salon_id,))
+        cursor.execute("DELETE FROM carts WHERE salon_id = %s", (salon_id,))
+        cursor.execute("DELETE FROM employee_salaries WHERE salon_id = %s", (salon_id,))
+        cursor.execute("DELETE FROM salon_gallery WHERE salon_id = %s", (salon_id,))
+        cursor.execute("DELETE FROM employees WHERE salon_id = %s", (salon_id,))
+        cursor.execute("DELETE FROM addresses WHERE salon_id = %s AND entity_type = 'salon'", (salon_id,))
+        cursor.execute("DELETE FROM salons WHERE salon_id = %s", (salon_id,))
+        #cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
 
         conn.commit()
         cursor.close()
