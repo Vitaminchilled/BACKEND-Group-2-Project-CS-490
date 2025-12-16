@@ -163,3 +163,76 @@ def updateUserDetails():
         if 'cursor' in locals() and cursor:
             cursor.close()
         return jsonify({"error": "Failed to update user details", "details": str(e)}), 500
+
+
+#User rewards page
+@users_bp.route('/userRewards', methods=['POST'])
+def userRewards():
+    try:
+        data = request.get_json()
+        user_id = data["user_id"]
+        mysql = current_app.config['MYSQL']
+        conn = mysql.connection
+        cursor = mysql.connection.cursor()
+        
+        sql_query = """
+            select
+                s.salon_id,
+                s.name as salon_name,
+                cp.available_points,
+                lp.loyalty_program_id,
+                lp.name as reward_name,
+                lp.points_required,
+                lp.discount_value,
+                lp.is_percentage,
+                GROUP_CONCAT(t.name SEPARATOR ',') as associated_tags
+            from 
+                customer_points cp
+            join 
+                salons s on cp.salon_id = s.salon_id
+            join 
+                loyalty_programs lp on s.salon_id = lp.salon_id
+            left join
+                entity_tags et on et.entity_type = 'loyalty' and et.entity_id = lp.loyalty_program_id
+            left join
+                tags t on et.tag_id = t.tag_id
+            where 
+                cp.customer_id = %s
+                and cp.available_points > 0
+                and (lp.end_date is NULL or lp.end_date >= CURDATE())
+            group by
+                lp.loyalty_program_id, s.salon_id, cp.available_points, lp.name, lp.points_required, lp.discount_value, lp.is_percentage
+            order by
+                s.name, lp.points_required;
+        """
+        cursor.execute(sql_query, (user_id,))
+        columns = [desc[0] for desc in cursor.description]
+        results = cursor.fetchall()
+        user_rewards = {}
+        
+        for row in results:
+            row_dict = dict(zip(columns, row))
+            salon_id = row_dict['salon_id']
+            tags_list = []
+            if row_dict['associated_tags']:
+                tags_list = row_dict['associated_tags'].split(',')
+            reward = {
+                'loyalty_program_id': row_dict['loyalty_program_id'],
+                'reward_name': row_dict['reward_name'],
+                'points_required': row_dict['points_required'],
+                'discount_value': str(row_dict['discount_value']),
+                'is_percentage': bool(row_dict['is_percentage']),
+                'tags': tags_list
+            }
+            if salon_id not in user_rewards:
+                user_rewards[salon_id] = {
+                    'salon_name': row_dict['salon_name'],
+                    'available_points': row_dict['available_points'],
+                    'rewards': []
+                }
+            user_rewards[salon_id]['rewards'].append(reward)
+        cursor.close() 
+        return jsonify(user_rewards), 200
+    
+    except Exception as e:
+        return jsonify({'error': 'Failed to fetch user rewards', 'details': str(e)}), 500
