@@ -195,7 +195,7 @@ def verifySalon():
         mysql = current_app.config['MYSQL']
         conn = mysql.connection
         cursor = mysql.connection.cursor()
-        cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
 
         #get salon owner info
         '''cursor.execute("""
