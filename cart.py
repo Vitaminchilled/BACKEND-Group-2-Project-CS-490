@@ -778,6 +778,7 @@ def allAvailableRewards():
                 customer_points cp ON cp.salon_id = s.salon_id AND cp.customer_id = %s
             LEFT JOIN 
                 loyalty_programs lp ON s.salon_id = lp.salon_id
+                    AND (lp.start_date IS NULL OR lp.start_date <= CURDATE())
                     AND (lp.end_date IS NULL OR lp.end_date >= CURDATE())
                     AND lp.points_required <= COALESCE(cp.available_points, 0)
             LEFT JOIN
