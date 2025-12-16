@@ -291,7 +291,7 @@ def verifySalon():
         cursor.execute("DELETE FROM employees WHERE salon_id = %s", (salon_id,))
         cursor.execute("DELETE FROM addresses WHERE salon_id = %s AND entity_type = 'salon'", (salon_id,))
         cursor.execute("DELETE FROM salons WHERE salon_id = %s", (salon_id,))
-        #cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
+        cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
 
         conn.commit()
         cursor.close()
