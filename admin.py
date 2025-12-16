@@ -342,7 +342,7 @@ def deleteUser():
         user_name = user_data[2]
 
         #notify why the account was deleted
-        try:
+        '''try:
             send_email(
                 to=user_email,
                 subject="Account Deletion Notice",
@@ -350,7 +350,7 @@ def deleteUser():
             )
         except Exception as e:
             log_error(str(e), session.get("user_id"))
-            print(f"Failed to send account deletion email: {e}")
+            print(f"Failed to send account deletion email: {e}")'''
 
         cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
 
