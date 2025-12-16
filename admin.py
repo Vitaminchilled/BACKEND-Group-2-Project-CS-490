@@ -198,12 +198,24 @@ def verifySalon():
         cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
 
         #get salon owner info
-        cursor.execute("""
+        '''cursor.execute("""
                 select owner_id, email, name
                 from salons 
                 where salon_id = %s
             """, (salon_id,))
-        owner_id, salon_email, salon_name = cursor.fetchone() 
+        owner_id, salon_email, salon_name = cursor.fetchone() '''
+
+        cursor.execute("""
+            select owner_id, email, name
+            from salons 
+            where salon_id = %s
+        """, (salon_id,))
+            
+        row = cursor.fetchone()
+        if not row:
+            cursor.close()
+            return jsonify({"error": "Salon not found"}), 404
+        owner_id, salon_email, salon_name = row
 
         if(is_verified):
             cursor.execute("""
@@ -275,7 +287,7 @@ def verifySalon():
             cursor.execute("DELETE FROM employees WHERE salon_id = %s", (salon_id,))
             cursor.execute("DELETE FROM addresses WHERE salon_id = %s AND entity_type = 'salon'", (salon_id,))
             cursor.execute("DELETE FROM salons WHERE salon_id = %s", (salon_id,))
-            cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
+            cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
 
         conn.commit()
         cursor.close()
