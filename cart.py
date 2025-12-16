@@ -555,6 +555,7 @@ def processPayment():
                 }
             salon_totals[salon_id]['items'].append({
                 'type': 'appointment',
+                'appointment_id': appt.get('appointment_id'),
                 'service_id': appt.get('service_id'),
                 'service_name': appt.get('service_name'),
                 'service_price': appt.get('service_price'),
@@ -607,11 +608,12 @@ def processPayment():
                     description = f"{service_name} - {appointment_date} at {start_time}"
                     
                     line_item_insert = """
-                        INSERT INTO invoice_line_items (invoice_id, item_type, service_id, description, quantity, unit_price)
-                        VALUES (%s, 'service', %s, %s, %s, %s)
+                        INSERT INTO invoice_line_items (invoice_id, item_type, appointment_id, service_id, description, quantity, unit_price)
+                        VALUES (%s, 'service', %s, %s, %s, %s, %s)
                     """
                     cursor.execute(line_item_insert, (
                         invoice_id,
+                        item.get('appointment_id'),
                         item.get('service_id'),
                         description,
                         1,
